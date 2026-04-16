@@ -3,9 +3,11 @@
 #   build → sign → notarize .app → package DMG → sign → notarize DMG
 #
 # Usage:
-#   ./scripts/release.sh
+#   ./scripts/release.sh                      # Build for host arch
+#   ARCH=x86_64 ./scripts/release.sh          # Cross-compile for Intel
 #
 # Env:
+#   ARCH             arm64 | x86_64 (default: host uname -m)
 #   SIGN_IDENTITY, NOTARY_PROFILE, NOTARIZE — same as build-app.sh / sign-notarize.sh
 #
 # Produces: dist/Gridex-<version>-<arch>.dmg (notarized, stapled, ready to ship)
@@ -18,7 +20,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" macos/Resources/Info.plist)
-ARCH=$(uname -m)
+export ARCH="${ARCH:-$(uname -m)}"
 
 echo "═══════════════════════════════════════════"
 echo "  Gridex Release Pipeline"

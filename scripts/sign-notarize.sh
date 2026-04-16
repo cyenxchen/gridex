@@ -78,14 +78,17 @@ sign_app() {
     fi
 
     echo "→ Signing app bundle..."
+    local cs_output
     # shellcheck disable=SC2086
-    codesign --force --deep --options runtime --timestamp \
+    cs_output=$(codesign --force --deep --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
         $ent_arg \
-        "$app" 2>&1 | grep -v "unsealed contents" || {
+        "$app" 2>&1) || {
             echo "✗ codesign failed"
+            echo "$cs_output"
             exit 1
         }
+    echo "$cs_output" | grep -v "unsealed contents" || true
 }
 
 verify_app() {

@@ -5,11 +5,13 @@
 #   ./scripts/build-app.sh            # Debug build (ad-hoc sign, quick local run)
 #   ./scripts/build-app.sh release    # Release: build + sign + notarize + staple + verify
 #   NOTARIZE=0 ./scripts/build-app.sh release   # Release, skip notarization
+#   ARCH=x86_64 ./scripts/build-app.sh release  # Cross-compile for Intel
 #
 # Env (release mode):
 #   SIGN_IDENTITY    SHA-1 or name of Developer ID cert (default pinned to 16/4/26 cert)
 #   NOTARY_PROFILE   notarytool keychain profile (default: gridex-notarize)
 #   NOTARIZE         0 to skip notarization (useful while iterating locally)
+#   ARCH             arm64 | x86_64 (default: host uname -m)
 
 set -euo pipefail
 
@@ -23,14 +25,16 @@ INFO_PLIST="$RESOURCES_DIR/Info.plist"
 ICON="$RESOURCES_DIR/AppIcon.icns"
 XCASSETS="$RESOURCES_DIR/Assets.xcassets"
 NOTARIZE="${NOTARIZE:-1}"
+ARCH="${ARCH:-$(uname -m)}"
 
 # 1. Build
-echo "→ Building ($MODE)..."
+echo "→ Building ($MODE, $ARCH)..."
+ARCH_FLAGS=(--arch "$ARCH")
 if [ "$MODE" = "release" ]; then
-    swift build -c release --package-path "$PROJECT_DIR" 2>&1 | tail -3
+    swift build -c release --package-path "$PROJECT_DIR" "${ARCH_FLAGS[@]}" 2>&1 | tail -3
     BUILD_DIR="$PROJECT_DIR/.build/release"
 else
-    swift build --package-path "$PROJECT_DIR" 2>&1 | tail -3
+    swift build --package-path "$PROJECT_DIR" "${ARCH_FLAGS[@]}" 2>&1 | tail -3
     BUILD_DIR="$PROJECT_DIR/.build/debug"
 fi
 
@@ -126,24 +130,27 @@ if [ "$MODE" = "release" ]; then
             rm -f "$RUNTIME_ENT"
             exit 1
         fi
-        codesign --force --deep --options runtime --timestamp \
+        cs_out=$(codesign --force --deep --options runtime --timestamp \
             --sign "$SIGN_IDENTITY" \
             --entitlements "$RUNTIME_ENT" \
             --generate-entitlement-der \
-            "$APP_BUNDLE" 2>&1 | grep -v "unsealed contents" || {
+            "$APP_BUNDLE" 2>&1) || {
                 echo "✗ Signing failed"
+                echo "$cs_out"
                 rm -f "$RUNTIME_ENT"
                 exit 1
             }
+        echo "$cs_out" | grep -v "unsealed contents" || true
         codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
     fi
     rm -f "$RUNTIME_ENT"
 else
     echo "→ Ad-hoc signing (debug)..."
-    codesign --force --deep --sign - \
+    cs_out=$(codesign --force --deep --sign - \
         --entitlements "$RUNTIME_ENT" \
         --generate-entitlement-der \
-        "$APP_BUNDLE" 2>&1 | grep -v "unsealed contents" || echo "⚠ Signing skipped"
+        "$APP_BUNDLE" 2>&1) || echo "⚠ Signing skipped"
+    echo "$cs_out" | grep -v "unsealed contents" || true
     rm -f "$RUNTIME_ENT"
     xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 fi
