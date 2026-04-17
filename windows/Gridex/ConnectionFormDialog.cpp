@@ -1,8 +1,10 @@
 #include "pch.h"
 #include "xaml-includes.h"
 #include <winrt/Windows.UI.h>
+#include <winrt/Microsoft.Windows.Storage.Pickers.h>
 #include "ConnectionFormDialog.h"
 #include "Models/AppSettings.h"
+#include "App.xaml.h"
 #if __has_include("ConnectionFormDialog.g.cpp")
 #include "ConnectionFormDialog.g.cpp"
 #endif
@@ -223,10 +225,48 @@ namespace winrt::Gridex::implementation
         key.Visibility((idx == 1 || idx == 2) ? mux::Visibility::Visible : mux::Visibility::Collapsed);
     }
 
-    void ConnectionFormDialog::BrowseFile_Click(
-        winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&) {}
-    void ConnectionFormDialog::BrowseSshKey_Click(
-        winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&) {}
+    winrt::fire_and_forget ConnectionFormDialog::BrowseFile_Click(
+        winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
+    {
+        auto lifetime = get_strong();
+        try
+        {
+            winrt::Microsoft::UI::WindowId windowId{
+                reinterpret_cast<uint64_t>(
+                    winrt::Gridex::implementation::App::MainHwnd) };
+            winrt::Microsoft::Windows::Storage::Pickers::FileOpenPicker picker(windowId);
+            picker.FileTypeFilter().Append(L".db");
+            picker.FileTypeFilter().Append(L".sqlite");
+            picker.FileTypeFilter().Append(L".sqlite3");
+            picker.FileTypeFilter().Append(L".db3");
+
+            auto pickedFile = co_await picker.PickSingleFileAsync();
+            if (!pickedFile) co_return;
+            FilePathInput().Text(pickedFile.Path());
+        }
+        catch (...) {}
+    }
+
+    winrt::fire_and_forget ConnectionFormDialog::BrowseSshKey_Click(
+        winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
+    {
+        auto lifetime = get_strong();
+        try
+        {
+            winrt::Microsoft::UI::WindowId windowId{
+                reinterpret_cast<uint64_t>(
+                    winrt::Gridex::implementation::App::MainHwnd) };
+            winrt::Microsoft::Windows::Storage::Pickers::FileOpenPicker picker(windowId);
+            picker.FileTypeFilter().Append(L".pem");
+            picker.FileTypeFilter().Append(L".ppk");
+            picker.FileTypeFilter().Append(L".key");
+
+            auto pickedFile = co_await picker.PickSingleFileAsync();
+            if (!pickedFile) co_return;
+            SshKeyInput().Text(pickedFile.Path());
+        }
+        catch (...) {}
+    }
 
     void ConnectionFormDialog::SaveButton_Click(
         winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)

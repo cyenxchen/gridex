@@ -21,10 +21,10 @@ namespace winrt::Gridex::implementation
         void SshAuth_Changed(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
-        void BrowseFile_Click(
+        winrt::fire_and_forget BrowseFile_Click(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
-        void BrowseSshKey_Click(
+        winrt::fire_and_forget BrowseSshKey_Click(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void SaveButton_Click(
