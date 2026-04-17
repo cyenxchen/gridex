@@ -127,8 +127,7 @@ jobs:
             -s "https://sparkle-project.org" \
             -a "ed25519" \
             -p "$SPARKLE_PRIVATE_KEY" \
-            -U \
-            "$RUNNER_TEMP/build.keychain"
+            -U
 
       - name: Install Wrangler CLI
         run: npm install -g wrangler
