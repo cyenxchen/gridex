@@ -4,6 +4,7 @@
 #include "Models/QueryResult.h"
 #include "Models/ColumnInfo.h"
 #include <functional>
+#include <set>
 
 namespace winrt::Gridex::implementation
 {
@@ -90,6 +91,15 @@ namespace winrt::Gridex::implementation
         // without relying on LostFocus timing.
         int editingRowIndex_ = -1;
         int editingColIndex_ = -1;
+
+        // Row indices the user has marked for deletion (pending commit).
+        // Kept here — not just in ChangeTracker — so HighlightRow /
+        // BuildRowElement can re-apply the red "pending delete" visual
+        // whenever a row is re-rendered (selection change, sort, page
+        // switch). Previously only the last-deleted row showed red
+        // because HighlightRow unconditionally reset the background on
+        // selection change.
+        std::set<int> deletedRows_;
         std::wstring sortColumn_;
         bool sortAscending_ = true;
         bool readOnly_ = false;

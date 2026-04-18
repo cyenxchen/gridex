@@ -177,6 +177,11 @@ namespace winrt::Gridex::implementation
     {
         data_        = result;
         selectedRow_ = -1;
+        // New data set = prior row indices are meaningless; drop the
+        // pending-delete visual bookkeeping. Host (WorkspacePage) also
+        // discards its ChangeTracker on table switch, so the two stay
+        // in sync.
+        deletedRows_.clear();
 
         // EXPLAIN / EXPLAIN ANALYZE (and similar verbatim single-column
         // outputs) must not be truncated at 80 chars — each row is a
@@ -767,6 +772,21 @@ namespace winrt::Gridex::implementation
         auto sp = findRowPanelByDataIndex(DataRows(), index);
         if (!sp) return;
 
+        // Pending-delete visual wins over alternate-row shading: if the
+        // row is in deletedRows_, paint it red + dim regardless of
+        // whether it's currently selected. This prevents an earlier
+        // delete's red mark from disappearing when the user clicks a
+        // different row (which triggered HighlightRow on the previous
+        // row and unconditionally reset its background).
+        const bool isDeleted = (deletedRows_.count(index) > 0);
+        if (isDeleted)
+        {
+            sp.Background(muxm::SolidColorBrush(
+                winrt::Windows::UI::ColorHelper::FromArgb(40, 196, 43, 28)));
+            sp.Opacity(0.5);
+            return;
+        }
+
         if (index == selectedRow_)
         {
             sp.Background(muxm::SolidColorBrush(
@@ -780,6 +800,7 @@ namespace winrt::Gridex::implementation
                 : winrt::Windows::UI::Colors::Transparent();
             sp.Background(muxm::SolidColorBrush(bg));
         }
+        sp.Opacity(1.0);
     }
 
     // ── Mark/clear row visual states ─────────────────
@@ -787,6 +808,9 @@ namespace winrt::Gridex::implementation
     {
         if (index < 0 || index >= static_cast<int>(data_.rows.size()))
             return;
+        // Track the delete so HighlightRow / row rebuild can re-paint
+        // it when selection changes or the grid re-renders.
+        deletedRows_.insert(index);
         auto sp = findRowPanelByDataIndex(DataRows(), index);
         if (!sp) return;
         sp.Background(muxm::SolidColorBrush(
@@ -796,6 +820,7 @@ namespace winrt::Gridex::implementation
 
     void DataGridView::ClearRowMarks()
     {
+        deletedRows_.clear();
         for (uint32_t i = 0; i < DataRows().Children().Size(); i++)
         {
             auto sp = DataRows().Children().GetAt(i).try_as<muxc::StackPanel>();
