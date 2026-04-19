@@ -40,6 +40,10 @@ namespace DBModels
         std::wstring cachedSql;
 
         // ER Diagram tab payload (only used when type == ERDiagram)
+        // erJsonText is what the WebView renderer consumes (dagre +
+        // custom SVG). erD2Text is kept only so the Copy D2 toolbar
+        // button still works; it isn't needed for rendering anymore.
+        std::wstring erJsonText;
         std::wstring erD2Text;
         std::wstring erSvgPath;
         int erTableCount = 0;

@@ -172,6 +172,17 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <DeploymentContent>true</DeploymentContent>
     </Content>
+    <!-- JS libs for the ER diagram renderer (dagre layout +
+         svg-pan-zoom). Bundled next to the exe; loaded by
+         LoadERDiagramIntoView at navigate time. -->
+    <Content Include="Assets\er-diagram\dagre.min.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <DeploymentContent>true</DeploymentContent>
+    </Content>
+    <Content Include="Assets\er-diagram\svg-pan-zoom.min.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <DeploymentContent>true</DeploymentContent>
+    </Content>
     <Content Include="Assets\THIRD-PARTY-NOTICES.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <DeploymentContent>true</DeploymentContent>

@@ -261,9 +261,8 @@
                         </Grid>
                         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8"
                                     HorizontalAlignment="Right" Padding="12,8">
-                            <Button x:Name="ERCopyD2Btn" Content="Copy D2" />
-                            <Button x:Name="ERSaveSvgBtn" Content="Save SVG..." />
-                            <Button x:Name="ERSaveD2Btn" Content="Save D2..." />
+                            <Button x:Name="ERExportPngBtn" Content="Export PNG..."
+                                    ToolTipService.ToolTip="Save the diagram as a PNG image" />
                         </StackPanel>
                     </Grid>
                 </Grid>

@@ -76,6 +76,15 @@ namespace winrt::Gridex::implementation
         double prevSidebarWidth_ = 280.0;
         double prevDetailsWidth_ = 260.0;
 
+        // Target path set when the "Export PNG" button opens the save
+        // picker. Cleared once WebMessageReceived receives the rendered
+        // PNG payload and writes it to disk.
+        std::wstring pendingPngPath_;
+
+        // Decode a "data:image/png;base64,..." URL coming back from the
+        // ER renderer and write it to pendingPngPath_.
+        void WritePngFromDataUrl(const std::wstring& dataUrl);
+
         // ── Drag-to-resize state for left/right sidebars + query log ──
         bool   leftResizing_         = false;
         double leftResizeStartX_     = 0.0;

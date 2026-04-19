@@ -5,6 +5,7 @@
 #include <sstream>
 #include <set>
 #include <algorithm>
+#include <unordered_map>
 
 namespace DBModels
 {
@@ -355,6 +356,175 @@ namespace DBModels
             L" tables, " + std::to_wstring(relCount) + L" relationships");
 
         return ss.str();
+    }
+
+    // ── JSON Generation (for the native WebView renderer) ─────────
+    //
+    // Walks the same schema as GenerateD2Text but emits a compact JSON
+    // document consumed by the dagre + svg-pan-zoom front end. No d2.exe
+    // or subprocess involved.
+
+    namespace
+    {
+        // JSON string escape shared by this whole emitter. Escapes the
+        // standard control chars + <, > so the JSON can be inlined into
+        // a <script type="application/json"> without a stray </script>.
+        std::wstring jsonEsc(const std::wstring& s)
+        {
+            std::wstring out;
+            out.reserve(s.size() + 2);
+            for (wchar_t c : s)
+            {
+                switch (c)
+                {
+                case L'"':  out += L"\\\""; break;
+                case L'\\': out += L"\\\\"; break;
+                case L'\b': out += L"\\b";  break;
+                case L'\f': out += L"\\f";  break;
+                case L'\n': out += L"\\n";  break;
+                case L'\r': out += L"\\r";  break;
+                case L'\t': out += L"\\t";  break;
+                case L'<':  out += L"\\u003c"; break;
+                case L'>':  out += L"\\u003e"; break;
+                default:
+                    if (c < 0x20)
+                    {
+                        wchar_t buf[8];
+                        swprintf_s(buf, 8, L"\\u%04x", static_cast<unsigned>(c));
+                        out += buf;
+                    }
+                    else out += c;
+                    break;
+                }
+            }
+            return out;
+        }
+
+        void emitJsonStr(std::wstringstream& o, const std::wstring& k,
+                         const std::wstring& v, bool last)
+        {
+            o << L"\"" << k << L"\":\"" << jsonEsc(v) << L"\"";
+            if (!last) o << L",";
+        }
+        void emitJsonBool(std::wstringstream& o, const std::wstring& k,
+                          bool v, bool last)
+        {
+            o << L"\"" << k << L"\":" << (v ? L"true" : L"false");
+            if (!last) o << L",";
+        }
+    }
+
+    ERDiagramResult ERDiagramService::GenerateJson(
+        std::shared_ptr<DatabaseAdapter> adapter,
+        const std::wstring& schema,
+        ProgressCallback progress)
+    {
+        auto report = [&](const std::wstring& msg) { if (progress) progress(msg); };
+        ERDiagramResult result;
+
+        if (!adapter || !adapter->isConnected())
+        {
+            result.error = L"Not connected";
+            return result;
+        }
+
+        std::vector<TableInfo> tables;
+        try { tables = adapter->listTables(schema); }
+        catch (...)
+        {
+            result.error = L"Could not list tables";
+            return result;
+        }
+
+        report(L"Found " + std::to_wstring(tables.size()) + L" tables in " + schema);
+
+        std::wstringstream ss;
+        ss << L"{\"tables\":[";
+
+        bool firstTable = true;
+        int tableIdx = 0;
+        // Track known table names for filtering orphan FK targets later.
+        std::set<std::wstring> tableNames;
+        for (const auto& t : tables) tableNames.insert(t.name);
+
+        // Cache FK info per table so the edges pass below doesn't re-query.
+        std::unordered_map<std::wstring, std::vector<ForeignKeyInfo>> fkCache;
+
+        for (const auto& tableInfo : tables)
+        {
+            const auto& tableName = tableInfo.name;
+            tableIdx++;
+            report(L"[" + std::to_wstring(tableIdx) + L"/" +
+                std::to_wstring(tables.size()) + L"] " + tableName);
+
+            std::vector<ColumnInfo> cols;
+            try { cols = adapter->describeTable(tableName, schema); }
+            catch (...) { continue; }
+
+            std::vector<ForeignKeyInfo> fks;
+            try { fks = adapter->listForeignKeys(tableName, schema); }
+            catch (...) {}
+            fkCache[tableName] = fks;
+
+            // Set of FK source columns so we can flag them on each column
+            // entry (d2's equivalent was `constraint: foreign_key`).
+            std::set<std::wstring> fkCols;
+            for (const auto& fk : fks) fkCols.insert(fk.column);
+
+            if (!firstTable) ss << L",";
+            firstTable = false;
+
+            ss << L"{";
+            emitJsonStr(ss, L"name",   tableName, false);
+            emitJsonStr(ss, L"schema", schema,    false);
+            ss << L"\"columns\":[";
+            bool firstCol = true;
+            for (const auto& col : cols)
+            {
+                if (!firstCol) ss << L",";
+                firstCol = false;
+                ss << L"{";
+                emitJsonStr(ss,  L"name",     col.name,                           false);
+                emitJsonStr(ss,  L"type",     col.dataType,                       false);
+                emitJsonBool(ss, L"isPk",     col.isPrimaryKey,                   false);
+                emitJsonBool(ss, L"isFk",     col.isForeignKey || fkCols.count(col.name) > 0, false);
+                emitJsonBool(ss, L"nullable", col.nullable,                       true);
+                ss << L"}";
+            }
+            ss << L"]}";
+        }
+
+        ss << L"],\"edges\":[";
+        bool firstEdge = true;
+        int relCount = 0;
+        for (const auto& t : tables)
+        {
+            auto it = fkCache.find(t.name);
+            if (it == fkCache.end()) continue;
+            for (const auto& fk : it->second)
+            {
+                if (tableNames.find(fk.referencedTable) == tableNames.end())
+                    continue;  // skip cross-schema / unresolved
+                if (!firstEdge) ss << L",";
+                firstEdge = false;
+                ss << L"{";
+                emitJsonStr(ss, L"fromTable",  t.name,              false);
+                emitJsonStr(ss, L"fromColumn", fk.column,           false);
+                emitJsonStr(ss, L"toTable",    fk.referencedTable,  false);
+                emitJsonStr(ss, L"toColumn",   fk.referencedColumn, true);
+                ss << L"}";
+                relCount++;
+            }
+        }
+        ss << L"]}";
+
+        report(L"Generated " + std::to_wstring(tables.size()) +
+            L" tables, " + std::to_wstring(relCount) + L" relationships");
+        result.jsonText = ss.str();
+        result.tableCount = static_cast<int>(tables.size());
+        result.relationshipCount = relCount;
+        result.success = true;
+        return result;
     }
 
     // ── Full Pipeline ───────────────────────────────────

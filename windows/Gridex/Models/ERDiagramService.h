@@ -9,8 +9,9 @@ namespace DBModels
     struct ERDiagramResult
     {
         bool success = false;
-        std::wstring d2Text;         // Generated D2 source
-        std::wstring svgPath;        // Path to rendered SVG file in temp dir
+        std::wstring d2Text;         // Generated D2 source (Copy D2 button)
+        std::wstring jsonText;       // Schema JSON consumed by the WebView renderer
+        std::wstring svgPath;        // Legacy: path to d2.exe rendered SVG (empty on the JSON path)
         int tableCount = 0;
         int relationshipCount = 0;
         std::wstring error;          // Subprocess stderr or generation error
@@ -30,6 +31,19 @@ namespace DBModels
 
         // Just the D2 text without rendering — used by Copy D2 button
         static std::wstring GenerateD2Text(
+            std::shared_ptr<DatabaseAdapter> adapter,
+            const std::wstring& schema,
+            ProgressCallback progress = nullptr);
+
+        // Walk the schema and return a result whose jsonText feeds the
+        // native WebView renderer (dagre + svg-pan-zoom + hand-rolled
+        // SVG cards) — no d2.exe involved. Shape of jsonText:
+        //   { "tables":[ {"name","schema","columns":[{name,type,isPk,isFk,nullable}]} ],
+        //     "edges":[ {"fromTable","fromColumn","toTable","toColumn"} ] }
+        // tableCount / relationshipCount are populated from the same
+        // walk so the caller doesn't re-introspect.
+        // On failure: success=false, jsonText empty, error populated.
+        static ERDiagramResult GenerateJson(
             std::shared_ptr<DatabaseAdapter> adapter,
             const std::wstring& schema,
             ProgressCallback progress = nullptr);

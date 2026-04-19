@@ -26,6 +26,7 @@
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <microsoft.ui.xaml.window.h>
 #include <ShlObj.h>
+#include <wincrypt.h>
 #include <chrono>
 #include <fstream>
 #include <thread>
@@ -788,34 +789,27 @@ namespace winrt::Gridex::implementation
         ERDiagramBtn().Click([this](winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
         { ShowERDiagramAsync(currentSchema_); });
 
-        // ER view action buttons (act on the active ERDiagram tab)
-        ERCopyD2Btn().Click([this](auto&&, auto&&)
+        // Export the current ER view as a PNG. We hand the user-picked
+        // path to the WebView renderer (window.__er.exportPng). It
+        // rasterizes the SVG to a canvas, toDataURL('image/png'), and
+        // posts the base64 payload back. The WebMessageReceived handler
+        // on the WebView2 writes it to disk.
+        ERExportPngBtn().Click([this](auto&&, auto&&) -> winrt::fire_and_forget
         {
+            std::wstring schema;
+            bool hasActive = false;
             for (const auto& t : state_.tabs)
             {
-                if (t.id == state_.activeTabId && t.type == DBModels::TabType::ERDiagram)
+                if (t.id == state_.activeTabId
+                    && t.type == DBModels::TabType::ERDiagram
+                    && !t.erJsonText.empty())
                 {
-                    winrt::Windows::ApplicationModel::DataTransfer::DataPackage pkg;
-                    pkg.SetText(winrt::hstring(t.erD2Text));
-                    winrt::Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(pkg);
-                    break;
-                }
-            }
-        });
-
-        ERSaveSvgBtn().Click([this](auto&&, auto&&) -> winrt::fire_and_forget
-        {
-            std::wstring svgPath, schema;
-            for (const auto& t : state_.tabs)
-            {
-                if (t.id == state_.activeTabId && t.type == DBModels::TabType::ERDiagram)
-                {
-                    svgPath = t.erSvgPath;
                     schema = t.schema;
+                    hasActive = true;
                     break;
                 }
             }
-            if (svgPath.empty()) co_return;
+            if (!hasActive) co_return;
             try
             {
                 winrt::Microsoft::UI::WindowId windowId{
@@ -824,12 +818,13 @@ namespace winrt::Gridex::implementation
                 winrt::Microsoft::Windows::Storage::Pickers::FileSavePicker picker(windowId);
                 picker.SuggestedFileName(winrt::hstring(schema + L"_er"));
                 auto exts = winrt::single_threaded_vector<winrt::hstring>();
-                exts.Append(L".svg");
-                picker.FileTypeChoices().Insert(L"SVG", exts);
+                exts.Append(L".png");
+                picker.FileTypeChoices().Insert(L"PNG", exts);
                 auto pickedFile = co_await picker.PickSaveFileAsync();
                 if (!pickedFile) co_return;
-                CopyFileW(svgPath.c_str(),
-                    std::wstring(pickedFile.Path()).c_str(), FALSE);
+                pendingPngPath_ = pickedFile.Path();
+                try { ERDiagramWebView().ExecuteScriptAsync(L"window.__er&&window.__er.exportPng()"); }
+                catch (...) {}
             }
             catch (...) {}
         });
@@ -850,46 +845,6 @@ namespace winrt::Gridex::implementation
             { runScript(L"window.__er&&window.__er.resetLayout()"); });
         ERFullscreenBtn().Click([this](auto&&, auto&&)
             { ToggleERFullscreen(); });
-
-        ERSaveD2Btn().Click([this](auto&&, auto&&) -> winrt::fire_and_forget
-        {
-            std::wstring d2Text, schema;
-            for (const auto& t : state_.tabs)
-            {
-                if (t.id == state_.activeTabId && t.type == DBModels::TabType::ERDiagram)
-                {
-                    d2Text = t.erD2Text;
-                    schema = t.schema;
-                    break;
-                }
-            }
-            if (d2Text.empty()) co_return;
-            try
-            {
-                winrt::Microsoft::UI::WindowId windowId{
-                    reinterpret_cast<uint64_t>(
-                        winrt::Gridex::implementation::App::MainHwnd) };
-                winrt::Microsoft::Windows::Storage::Pickers::FileSavePicker picker(windowId);
-                picker.SuggestedFileName(winrt::hstring(schema + L"_er"));
-                auto exts = winrt::single_threaded_vector<winrt::hstring>();
-                exts.Append(L".d2");
-                picker.FileTypeChoices().Insert(L"D2 Source", exts);
-                auto pickedFile = co_await picker.PickSaveFileAsync();
-                if (!pickedFile) co_return;
-
-                std::wstring path(pickedFile.Path());
-                std::ofstream f(path, std::ios::binary);
-                if (!f.is_open()) co_return;
-                f.write("\xEF\xBB\xBF", 3);
-                int sz = WideCharToMultiByte(CP_UTF8, 0, d2Text.c_str(),
-                    static_cast<int>(d2Text.size()), nullptr, 0, nullptr, nullptr);
-                std::string utf8(sz, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, d2Text.c_str(),
-                    static_cast<int>(d2Text.size()), &utf8[0], sz, nullptr, nullptr);
-                f.write(utf8.c_str(), utf8.size());
-            }
-            catch (...) {}
-        });
 
         SettingsBtn().Click([this](winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
         {
@@ -2971,7 +2926,17 @@ namespace winrt::Gridex::implementation
             DBModels::ERDiagramResult result;
             try
             {
-                result = DBModels::ERDiagramService::Generate(adapter, schema);
+                // New JSON-based renderer: walk the schema once, emit
+                // the JSON document consumed by the in-WebView dagre +
+                // svg-pan-zoom front-end. No d2.exe subprocess.
+                result = DBModels::ERDiagramService::GenerateJson(adapter, schema);
+                if (result.success)
+                {
+                    // D2 text still produced so the "Copy D2" button in
+                    // the ER toolbar keeps working. Cheap — no subprocess.
+                    result.d2Text = DBModels::ERDiagramService::GenerateD2Text(
+                        adapter, schema);
+                }
             }
             catch (...)
             {
@@ -3016,8 +2981,9 @@ namespace winrt::Gridex::implementation
             return;
         }
 
+        tabPtr->erJsonText = result.jsonText;
         tabPtr->erD2Text = result.d2Text;
-        tabPtr->erSvgPath = result.svgPath;
+        tabPtr->erSvgPath = result.svgPath;  // stays empty on the JSON path
         tabPtr->erTableCount = result.tableCount;
         tabPtr->erRelationshipCount = result.relationshipCount;
 
@@ -3027,13 +2993,499 @@ namespace winrt::Gridex::implementation
             LoadERDiagramIntoView(*tabPtr);
     }
 
-    // Populate the ER view (subtitle + WebView2) from a tab's cached payload.
-    // WebView2 hosts the d2-generated SVG inside a minimal HTML page so the
-    // browser engine handles font rendering, panning, and scrolling natively.
+
+    namespace
+    {
+        std::wstring getExeDirER()
+        {
+            wchar_t buf[MAX_PATH] = {};
+            DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+            if (len == 0 || len >= MAX_PATH) return L"";
+            std::wstring p(buf, len);
+            auto pos = p.find_last_of(L"\\/");
+            return pos == std::wstring::npos ? L"" : p.substr(0, pos);
+        }
+
+        std::string readERLibFile(const std::wstring& fileName)
+        {
+            auto dir = getExeDirER();
+            if (dir.empty()) return {};
+            std::wstring path = dir + L"\\Assets\\er-diagram\\" + fileName;
+            std::ifstream f(path, std::ios::binary);
+            if (!f.is_open()) return {};
+            std::stringstream ss;
+            ss << f.rdbuf();
+            return ss.str();
+        }
+
+        std::string erWsToUtf8(const std::wstring& w)
+        {
+            if (w.empty()) return {};
+            int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(),
+                static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+            std::string out(sz, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, w.c_str(),
+                static_cast<int>(w.size()), &out[0], sz, nullptr, nullptr);
+            return out;
+        }
+
+        constexpr const char* kERCss = R"CSS(
+:root{color-scheme:light dark;}
+html[data-theme="light"]{
+  --bg:#f8f9fa;--card-bg:#ffffff;--card-border:#e5e7eb;
+  --card-shadow:0 1px 2px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.06);
+  --fg:#111827;--fg-muted:#6b7280;
+  --header-bg:#f3f4f6;--header-fg:#1f2937;
+  --badge-pk-bg:rgba(5,150,105,0.12);--badge-pk-fg:#047857;
+  --badge-fk-bg:rgba(217,119,6,0.12);--badge-fk-fg:#b45309;
+  --selected:#3b82f6;
+  --row-border:rgba(0,0,0,0.05);
+}
+html[data-theme="dark"]{
+  --bg:#0f1113;--card-bg:#1a1c1f;--card-border:#2b2d31;
+  --card-shadow:0 1px 2px rgba(0,0,0,0.4),0 6px 18px rgba(0,0,0,0.35);
+  --fg:#e5e7eb;--fg-muted:#9ca3af;
+  --header-bg:#24262a;--header-fg:#e5e7eb;
+  --badge-pk-bg:rgba(16,185,129,0.15);--badge-pk-fg:#34d399;
+  --badge-fk-bg:rgba(251,191,36,0.15);--badge-fk-fg:#fbbf24;
+  --selected:#60a5fa;
+  --row-border:rgba(255,255,255,0.05);
+}
+html,body{margin:0;padding:0;width:100%;height:100vh;overflow:hidden;
+  background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+#er-svg{width:100%;height:100%;display:block;}
+foreignObject{overflow:visible;}
+.er-card{width:100%;height:100%;box-sizing:border-box;font-size:12px;line-height:1.4;
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:8px;box-shadow:var(--card-shadow);overflow:hidden;}
+.er-header{padding:8px 12px;background:var(--header-bg);color:var(--header-fg);
+  font-weight:600;font-size:12px;letter-spacing:0.2px;
+  border-bottom:1px solid var(--card-border);
+  display:flex;align-items:center;gap:8px;}
+.er-header-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  cursor:grab;user-select:none;}
+.er-header-text:active{cursor:grabbing;}
+.er-row{display:flex;align-items:center;padding:4px 12px;gap:10px;
+  min-height:22px;border-bottom:1px solid var(--row-border);}
+.er-row:last-child{border-bottom:none;}
+.er-col{flex:1;color:var(--fg-muted);
+  font-family:'Consolas','SF Mono',Menlo,monospace;font-size:11px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.er-type{color:var(--fg);
+  font-family:'Consolas','SF Mono',Menlo,monospace;font-size:10.5px;
+  opacity:0.75;white-space:nowrap;}
+.er-badge{font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;letter-spacing:0.4px;}
+.er-badge.pk{background:var(--badge-pk-bg);color:var(--badge-pk-fg);}
+.er-badge.fk{background:var(--badge-fk-bg);color:var(--badge-fk-fg);}
+g.er-selected > foreignObject > div.er-card{
+  box-shadow:0 0 0 2px var(--selected),var(--card-shadow);}
+)CSS";
+
+        constexpr const char* kERRenderJs = R"JS(
+(function(){
+  var data;
+  try { data = JSON.parse(document.getElementById('er-data').textContent); }
+  catch(e){ document.body.textContent = 'Invalid schema data: ' + e.message; return; }
+  var theme = document.documentElement.dataset.theme || 'light';
+  var colors = theme === 'dark'
+    ? { edge:'#7ba7d9', edgeHover:'#93c5fd' }
+    : { edge:'#6b7b8c', edgeHover:'#3b82f6' };
+
+  // Card geometry — keep in sync with CSS.
+  // Keep in sync with CSS — under-counting here crops the bottom row
+  // because .er-card is overflow:hidden.
+  //   .er-header : 8+8 padding + ~16 text + 1 border  ≈ 42
+  //   .er-row    : 4+4 padding + 22 min-height + 1 border ≈ 32
+  var DEFAULT_W = 260, HEADER_H = 42, ROW_H = 32;
+  var svg = document.getElementById('er-svg');
+  var svgNS = 'http://www.w3.org/2000/svg';
+  var panZoom = null;
+  var selectedId = null;
+
+  var tableWidths = {}, tableHeights = {}, tablePositions = {};
+  var tableEls = {}, tableDimsCache = {}, edgeEls = [];
+
+  function widthFor(t){ return tableWidths[t.name] || DEFAULT_W; }
+  function defaultHeightFor(t){
+    return HEADER_H + (t.columns ? t.columns.length : 0) * ROW_H;
+  }
+  function heightFor(t){ return tableHeights[t.name] || defaultHeightFor(t); }
+  function tableDims(t){ return { w: widthFor(t), h: heightFor(t) }; }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; });
+  }
+  function buildCardHtml(t){
+    var html = '<div class="er-header">' +
+      '<span class="er-header-text" data-drag="1">' + escapeHtml(t.name) + '</span>' +
+      '</div>';
+    (t.columns || []).forEach(function(c){
+      var badge = c.isPk ? '<span class="er-badge pk">PK</span>'
+                : c.isFk ? '<span class="er-badge fk">FK</span>' : '';
+      html += '<div class="er-row">' +
+        '<span class="er-col" title="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + '</span>' +
+        '<span class="er-type" title="' + escapeHtml(c.type) + '">' + escapeHtml(c.type) + '</span>' +
+        badge + '</div>';
+    });
+    return html;
+  }
+
+  function setEdgePath(e){
+    var sp = tablePositions[e.fromTable], tp = tablePositions[e.toTable];
+    var sd = tableDimsCache[e.fromTable], td = tableDimsCache[e.toTable];
+    if (!sp || !tp || !sd || !td) return;
+    var sc = { x: sp.x + sd.w/2, y: sp.y + sd.h/2 };
+    var dc = { x: tp.x + td.w/2, y: tp.y + td.h/2 };
+    var dx = dc.x - sc.x, dy = dc.y - sc.y;
+    var horiz = Math.abs(dx) >= Math.abs(dy);
+    var p1, p2, c1, c2, cd;
+    if (horiz){
+      if (dx >= 0){ p1 = { x: sp.x + sd.w, y: sc.y }; p2 = { x: tp.x, y: dc.y }; }
+      else        { p1 = { x: sp.x,        y: sc.y }; p2 = { x: tp.x + td.w, y: dc.y }; }
+      cd = Math.max(40, Math.abs(p2.x - p1.x) * 0.5);
+      var sx = dx >= 0 ? 1 : -1;
+      c1 = { x: p1.x + sx*cd, y: p1.y };
+      c2 = { x: p2.x - sx*cd, y: p2.y };
+    } else {
+      if (dy >= 0){ p1 = { x: sc.x, y: sp.y + sd.h }; p2 = { x: dc.x, y: tp.y }; }
+      else        { p1 = { x: sc.x, y: sp.y        }; p2 = { x: dc.x, y: tp.y + td.h }; }
+      cd = Math.max(40, Math.abs(p2.y - p1.y) * 0.5);
+      var sy = dy >= 0 ? 1 : -1;
+      c1 = { x: p1.x, y: p1.y + sy*cd };
+      c2 = { x: p2.x, y: p2.y - sy*cd };
+    }
+    e.path.setAttribute('d',
+      'M '+p1.x+' '+p1.y+' C '+c1.x+' '+c1.y+', '+c2.x+' '+c2.y+', '+p2.x+' '+p2.y);
+  }
+  function updateEdgesFor(tableName){
+    edgeEls.forEach(function(e){
+      if (e.fromTable === tableName || e.toTable === tableName) setEdgePath(e);
+    });
+  }
+  function setTableWidth(name, w){
+    tableWidths[name] = w;
+    var el = tableEls[name];
+    var dim = tableDimsCache[name];
+    if (!el || !dim) return;
+    dim.w = w;
+    var fo = el.querySelector('foreignObject');
+    if (fo) fo.setAttribute('width', w);
+    var handle = el.querySelector('rect[data-resize="1"]');
+    if (handle) handle.setAttribute('x', w - 5);
+    var bhandle = el.querySelector('rect[data-resize="v"]');
+    if (bhandle) bhandle.setAttribute('width', Math.max(8, w - 8));
+    updateEdgesFor(name);
+  }
+  function setTableHeight(name, h){
+    tableHeights[name] = h;
+    var el = tableEls[name];
+    var dim = tableDimsCache[name];
+    if (!el || !dim) return;
+    dim.h = h;
+    var fo = el.querySelector('foreignObject');
+    if (fo) fo.setAttribute('height', h);
+    var handle = el.querySelector('rect[data-resize="1"]');
+    if (handle) handle.setAttribute('height', Math.max(8, h - HEADER_H - 8));
+    var bhandle = el.querySelector('rect[data-resize="v"]');
+    if (bhandle) bhandle.setAttribute('y', h - 5);
+    updateEdgesFor(name);
+  }
+  function moveTable(name, x, y){
+    tablePositions[name] = { x: x, y: y };
+    var el = tableEls[name];
+    if (el) el.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+    updateEdgesFor(name);
+  }
+
+  function render(){
+    if (panZoom){ try{ panZoom.destroy(); }catch(e){} panZoom = null; }
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    tableEls = {}; tableDimsCache = {}; edgeEls = [];
+
+    var g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir:'LR', nodesep:50, ranksep:120, marginx:24, marginy:24 });
+    g.setDefaultEdgeLabel(function(){ return {}; });
+    (data.tables || []).forEach(function(t){
+      var d = tableDims(t);
+      g.setNode(t.name, { width: d.w, height: d.h, table: t });
+    });
+    (data.edges || []).forEach(function(e){
+      if (g.hasNode(e.fromTable) && g.hasNode(e.toTable))
+        g.setEdge(e.fromTable, e.toTable, { edge: e });
+    });
+    dagre.layout(g);
+
+    var maxX = 0, maxY = 0;
+    g.nodes().forEach(function(id){
+      var nd = g.node(id);
+      maxX = Math.max(maxX, nd.x + nd.width/2);
+      maxY = Math.max(maxY, nd.y + nd.height/2);
+    });
+    svg.setAttribute('viewBox', '0 0 ' + Math.ceil(maxX+40) + ' ' + Math.ceil(maxY+40));
+
+    var defs = document.createElementNS(svgNS, 'defs');
+    var marker = document.createElementNS(svgNS, 'marker');
+    marker.setAttribute('id','er-arrow');
+    marker.setAttribute('viewBox','0 0 10 10');
+    marker.setAttribute('refX','9'); marker.setAttribute('refY','5');
+    marker.setAttribute('markerWidth','8'); marker.setAttribute('markerHeight','8');
+    marker.setAttribute('orient','auto-start-reverse');
+    var mp = document.createElementNS(svgNS,'path');
+    mp.setAttribute('d','M0,0 L10,5 L0,10 z');
+    mp.setAttribute('fill', colors.edge);
+    marker.appendChild(mp);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var edgesG = document.createElementNS(svgNS,'g');
+    edgesG.setAttribute('id','er-edges');
+    svg.appendChild(edgesG);
+    g.edges().forEach(function(eid){
+      var e = g.edge(eid);
+      var path = document.createElementNS(svgNS,'path');
+      path.setAttribute('fill','none');
+      path.setAttribute('stroke', colors.edge);
+      path.setAttribute('stroke-width','1.5');
+      path.setAttribute('marker-end', 'url(#er-arrow)');
+      edgesG.appendChild(path);
+      edgeEls.push({ path: path, fromTable: eid.v, toTable: eid.w });
+    });
+
+    var nodesG = document.createElementNS(svgNS,'g');
+    nodesG.setAttribute('id','er-tables');
+    svg.appendChild(nodesG);
+    g.nodes().forEach(function(id){
+      var nd = g.node(id);
+      var t = nd.table;
+      var pos = tablePositions[t.name] ||
+        { x: nd.x - nd.width/2, y: nd.y - nd.height/2 };
+      tablePositions[t.name] = pos;
+      tableDimsCache[t.name] = { w: nd.width, h: nd.height };
+
+      var groupEl = document.createElementNS(svgNS,'g');
+      groupEl.setAttribute('transform','translate('+pos.x+','+pos.y+')');
+      groupEl.dataset.tableName = t.name;
+      if (t.name === selectedId) groupEl.classList.add('er-selected');
+      tableEls[t.name] = groupEl;
+
+      var fo = document.createElementNS(svgNS,'foreignObject');
+      fo.setAttribute('width', nd.width);
+      fo.setAttribute('height', nd.height);
+      var div = document.createElementNS('http://www.w3.org/1999/xhtml','div');
+      div.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+      div.className = 'er-card';
+      div.innerHTML = buildCardHtml(t);
+      fo.appendChild(div);
+      groupEl.appendChild(fo);
+
+      // Right-edge resize (width).
+      var handle = document.createElementNS(svgNS,'rect');
+      handle.setAttribute('x', nd.width - 5);
+      handle.setAttribute('y', HEADER_H + 4);
+      handle.setAttribute('width', 5);
+      handle.setAttribute('height', Math.max(8, nd.height - HEADER_H - 8));
+      handle.setAttribute('fill', 'rgba(127,127,127,0.22)');
+      handle.setAttribute('rx', '2');
+      handle.style.cursor = 'ew-resize';
+      handle.dataset.resize = '1';
+      groupEl.appendChild(handle);
+
+      handle.addEventListener('mousedown', function(ev){
+        ev.stopPropagation(); ev.preventDefault();
+        if (panZoom) panZoom.disablePan();
+        var startMx = ev.clientX;
+        var startW = widthFor(t);
+        function onMove(e){
+          var scale = panZoom ? panZoom.getZoom() : 1;
+          var dx = (e.clientX - startMx) / scale;
+          setTableWidth(t.name, Math.max(180, Math.min(800, startW + dx)));
+        }
+        function onUp(){
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (panZoom) panZoom.enablePan();
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      // Bottom-edge resize (height). Dragging down grows the card;
+      // dragging up clips content via .er-card overflow:hidden — useful
+      // when the user wants to compact a tall table.
+      var bhandle = document.createElementNS(svgNS,'rect');
+      bhandle.setAttribute('x', 4);
+      bhandle.setAttribute('y', nd.height - 5);
+      bhandle.setAttribute('width', Math.max(8, nd.width - 8));
+      bhandle.setAttribute('height', 5);
+      bhandle.setAttribute('fill', 'rgba(127,127,127,0.22)');
+      bhandle.setAttribute('rx', '2');
+      bhandle.style.cursor = 'ns-resize';
+      bhandle.dataset.resize = 'v';
+      groupEl.appendChild(bhandle);
+
+      bhandle.addEventListener('mousedown', function(ev){
+        ev.stopPropagation(); ev.preventDefault();
+        if (panZoom) panZoom.disablePan();
+        var startMy = ev.clientY;
+        var startH = heightFor(t);
+        function onMove(e){
+          var scale = panZoom ? panZoom.getZoom() : 1;
+          var dy = (e.clientY - startMy) / scale;
+          setTableHeight(t.name, Math.max(60, Math.min(3000, startH + dy)));
+        }
+        function onUp(){
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (panZoom) panZoom.enablePan();
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      var dragMoved = false;
+      groupEl.addEventListener('mousedown', function(ev){
+        var tg = ev.target;
+        if (!tg || !tg.dataset || tg.dataset.drag !== '1') return;
+        ev.stopPropagation(); ev.preventDefault();
+        if (panZoom) panZoom.disablePan();
+        var startMx = ev.clientX, startMy = ev.clientY;
+        var sp = tablePositions[t.name] || { x:0, y:0 };
+        var sx = sp.x, sy = sp.y;
+        dragMoved = false;
+        function onMove(e){
+          var scale = panZoom ? panZoom.getZoom() : 1;
+          var dx = (e.clientX - startMx) / scale;
+          var dy = (e.clientY - startMy) / scale;
+          if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragMoved = true;
+          moveTable(t.name, sx + dx, sy + dy);
+        }
+        function onUp(){
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (panZoom) panZoom.enablePan();
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      nodesG.appendChild(groupEl);
+
+      groupEl.addEventListener('click', function(ev){
+        var tg = ev.target;
+        if (tg && tg.dataset && tg.dataset.resize) return;
+        if (dragMoved){ dragMoved = false; ev.stopPropagation(); return; }
+        ev.stopPropagation();
+        document.querySelectorAll('g.er-selected').forEach(function(el){
+          el.classList.remove('er-selected'); });
+        if (selectedId === t.name){ selectedId = null; return; }
+        groupEl.classList.add('er-selected');
+        selectedId = t.name;
+      });
+    });
+
+    edgeEls.forEach(setEdgePath);
+
+    panZoom = svgPanZoom('#er-svg', {
+      zoomEnabled: true, controlIconsEnabled: false,
+      fit: true, center: true, minZoom: 0.1, maxZoom: 10,
+      zoomScaleSensitivity: 0.4, dblClickZoomEnabled: false,
+    });
+    panZoom.setOnZoom(function(){
+      try { if (window.chrome && window.chrome.webview)
+        window.chrome.webview.postMessage('zoom:' + Math.round(panZoom.getZoom()*100));
+      } catch(e){}
+    });
+  }
+
+  // Rasterize the current SVG to a PNG data URL and post back.
+  // All styles are inlined into a <style> inside the cloned SVG so
+  // the resulting image renders foreignObject cards with the same
+  // fonts / colors / borders as the on-screen version.
+  function exportPng(){
+    try {
+      var original = document.getElementById('er-svg');
+      if (!original) return;
+      var clone = original.cloneNode(true);
+
+      var cssText = '';
+      try {
+        var sheets = document.styleSheets;
+        for (var i = 0; i < sheets.length; i++){
+          try {
+            var rules = sheets[i].cssRules || sheets[i].rules || [];
+            for (var j = 0; j < rules.length; j++) cssText += rules[j].cssText + '\n';
+          } catch(e){}
+        }
+      } catch(e){}
+
+      var styleEl = document.createElementNS(svgNS, 'style');
+      styleEl.textContent = cssText;
+      clone.insertBefore(styleEl, clone.firstChild);
+
+      var vb = original.viewBox.baseVal;
+      var w = Math.max(1, Math.ceil(vb && vb.width  ? vb.width  : original.clientWidth  || 800));
+      var h = Math.max(1, Math.ceil(vb && vb.height ? vb.height : original.clientHeight || 600));
+      clone.setAttribute('width',  w);
+      clone.setAttribute('height', h);
+
+      var xml = new XMLSerializer().serializeToString(clone);
+      var svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      var url = URL.createObjectURL(svgBlob);
+
+      var img = new Image();
+      img.onload = function(){
+        var scale = 2; // retina
+        var canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        var ctx = canvas.getContext('2d');
+        var bg = (document.documentElement.dataset.theme === 'dark') ? '#0f1113' : '#f8f9fa';
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        try {
+          var dataUrl = canvas.toDataURL('image/png');
+          if (window.chrome && window.chrome.webview)
+            window.chrome.webview.postMessage('png:' + dataUrl);
+        } catch(e){}
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); };
+      img.src = url;
+    } catch(e){}
+  }
+
+  // Public API invoked from C++ via ExecuteScriptAsync.
+  window.__er = {
+    zoomIn: function(){ if (panZoom) panZoom.zoomBy(1.3); },
+    zoomOut: function(){ if (panZoom) panZoom.zoomBy(1/1.3); },
+    resetZoom: function(){
+      if (!panZoom) return;
+      panZoom.resetZoom(); panZoom.fit(); panZoom.center();
+    },
+    resetLayout: function(){
+      // Toss all manual positions / widths / heights, re-run dagre fresh.
+      tablePositions = {}; tableWidths = {}; tableHeights = {};
+      render();
+    },
+    exportPng: exportPng
+  };
+
+  render();
+})();
+)JS";
+    } // anonymous namespace
+
+    // Populate the ER view (subtitle + WebView2) from a tab's cached
+    // JSON. The in-WebView renderer (dagre + svg-pan-zoom + hand-rolled
+    // SVG cards) is described by the kERCss / kERRenderJs constants
+    // just above. d2.exe is no longer invoked on the display path.
     void WorkspacePage::LoadERDiagramIntoView(const DBModels::ContentTab& tab)
     {
-        // If still generating (no SVG yet), show the loading panel instead
-        if (tab.erSvgPath.empty())
+        // Still generating — show the loading panel.
+        if (tab.erJsonText.empty())
         {
             ERDiagramSubtitle().Text(winrt::hstring(
                 L"Schema: " + tab.schema + L"  -  generating..."));
@@ -3043,7 +3495,6 @@ namespace winrt::Gridex::implementation
             return;
         }
 
-        // SVG ready -> hide loader, show WebView
         ERDiagramLoadingPanel().Visibility(mux::Visibility::Collapsed);
         ERDiagramWebView().Visibility(mux::Visibility::Visible);
 
@@ -3052,281 +3503,39 @@ namespace winrt::Gridex::implementation
             std::to_wstring(tab.erTableCount) + L" tables, " +
             std::to_wstring(tab.erRelationshipCount) + L" relationships"));
 
-        // Read SVG file content
-        std::ifstream svgFile(tab.erSvgPath, std::ios::binary);
-        if (!svgFile.is_open()) return;
-        std::string svgBytes((std::istreambuf_iterator<char>(svgFile)),
-                             std::istreambuf_iterator<char>());
-        svgFile.close();
-        if (svgBytes.empty()) return;
+        std::string dagreJs = readERLibFile(L"dagre.min.js");
+        std::string panzoomJs = readERLibFile(L"svg-pan-zoom.min.js");
+        if (dagreJs.empty() || panzoomJs.empty())
+        {
+            ERDiagramLoadingText().Text(
+                L"Missing Assets\\er-diagram\\*.js next to the executable.");
+            ERDiagramLoadingPanel().Visibility(mux::Visibility::Visible);
+            ERDiagramWebView().Visibility(mux::Visibility::Collapsed);
+            return;
+        }
 
-        // Build minimal HTML wrapper with the SVG inlined.
-        // - Body acts as the infinite white canvas (min 20000x20000)
-        // - SVG overflow:visible so tables dragged outside the original
-        //   diagram bounds still render (instead of getting clipped)
-        // - Body bg white matches d2's white background -> seamless canvas
-        std::string html =
-            "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
-            "<style>"
-            "html,body{margin:0;padding:0;background:#FFFFFF;"
-            "font-family:'Segoe UI',sans-serif;}"
-            "body{overflow:auto;padding:16px;"
-            "min-width:20000px;min-height:20000px;}"
-            "body>svg{display:block;overflow:visible;}"
-            "body>svg svg{overflow:visible;}"
-            "</style></head><body>";
-        html += svgBytes;
-        html +=
-            "<script>(function(){"
-            // Render SVG at intrinsic viewBox size. Body provides the
-            // 'infinite' white canvas via min-width/min-height. Tables can
-            // be dragged outside the SVG bounds because svg overflow:visible.
-            "var outer=document.querySelector('body>svg');"
-            "if(outer&&outer.viewBox&&outer.viewBox.baseVal){"
-              "var vb=outer.viewBox.baseVal;"
-              "if(vb.width>0&&vb.height>0){"
-                "outer.setAttribute('width',vb.width);"
-                "outer.setAttribute('height',vb.height);"
-              "}"
-            "}"
-            // Add arrowhead marker for FK direction (FK column -> parent table)
-            "var svgNS='http://www.w3.org/2000/svg';"
-            "var defs=document.createElementNS(svgNS,'defs');"
-            "var marker=document.createElementNS(svgNS,'marker');"
-            "marker.setAttribute('id','fk-arrow');"
-            "marker.setAttribute('viewBox','0 0 10 10');"
-            "marker.setAttribute('refX','9');"
-            "marker.setAttribute('refY','5');"
-            "marker.setAttribute('markerWidth','7');"
-            "marker.setAttribute('markerHeight','7');"
-            "marker.setAttribute('orient','auto-start-reverse');"
-            "var arrowPath=document.createElementNS(svgNS,'path');"
-            "arrowPath.setAttribute('d','M 0 0 L 10 5 L 0 10 z');"
-            "arrowPath.setAttribute('fill','#7AA7D9');"
-            "marker.appendChild(arrowPath);"
-            "defs.appendChild(marker);"
-            "outer.appendChild(defs);"
-            // Zoom state shared between wheel handler and toolbar buttons
-            "var scale=1;"
-            "var target=outer||document.body;"
-            "target.style.transformOrigin='0 0';"
-            "function postZoom(){"
-              "if(window.chrome&&window.chrome.webview){"
-                "try{window.chrome.webview.postMessage('zoom:'+Math.round(scale*100));}catch(e){}"
-              "}"
-            "}"
-            "function applyScale(){"
-              "target.style.transform='scale('+scale+')';"
-              "postZoom();"
-            "}"
-            // Custom wheel: Ctrl=zoom (up=in), Shift=horizontal, default=vertical
-            "document.addEventListener('wheel',function(e){"
-              "if(e.ctrlKey){"
-                "e.preventDefault();"
-                "var d=e.deltaY<0?0.1:-0.1;"
-                "scale=Math.max(0.25,Math.min(4,scale+d));"
-                "applyScale();"
-              "}else if(e.shiftKey){"
-                "e.preventDefault();"
-                "window.scrollBy({left:e.deltaY,behavior:'auto'});"
-              "}"
-            "},{passive:false});"
-            // Drag-to-reposition tables. FK lines auto-follow via overlay
-            // <line> elements that we draw between table edges.
-            "var dragSvg=outer.querySelector('svg.d2-svg')||outer;"
-            "function svgPoint(e){"
-              "var pt=outer.createSVGPoint();"
-              "pt.x=e.clientX;pt.y=e.clientY;"
-              "return pt.matrixTransform(outer.getScreenCTM().inverse());"
-            "}"
-            "function parseTransform(s){"
-              "var m=/translate\\(([-\\d.]+)[\\s,]+([-\\d.]+)\\)/.exec(s||'');"
-              "return m?[parseFloat(m[1]),parseFloat(m[2])]:[0,0];"
-            "}"
-            // Decode d2 base64 class name; returns null if not base64
-            "function decodeCls(c){"
-              "if(!c||!/^[A-Za-z0-9+/]+=*$/.test(c))return null;"
-              "try{return atob(c);}catch(e){return null;}"
-            "}"
-            // Get element bbox in outer SVG user-space coords
-            "function vbox(el){"
-              "var r=el.getBoundingClientRect();"
-              "var inv=outer.getScreenCTM().inverse();"
-              "var p1=outer.createSVGPoint();p1.x=r.left;p1.y=r.top;p1=p1.matrixTransform(inv);"
-              "var p2=outer.createSVGPoint();p2.x=r.right;p2.y=r.bottom;p2=p2.matrixTransform(inv);"
-              "return{x:p1.x,y:p1.y,width:p2.x-p1.x,height:p2.y-p1.y};"
-            "}"
-            // Pick the closest edge anchor (left|right|top|bottom) on each
-            // table based on the relative direction between centers, then
-            // build a cubic Bezier whose control points extend perpendicular
-            // to that edge. Result: smooth S-curves that always enter/exit
-            // tables at right angles, like Lucidchart / Apple Notes style.
-            "function bezierPath(sb,db){"
-              "var sc={x:sb.x+sb.width/2,y:sb.y+sb.height/2};"
-              "var dc={x:db.x+db.width/2,y:db.y+db.height/2};"
-              "var dx=dc.x-sc.x,dy=dc.y-sc.y;"
-              "var horiz=Math.abs(dx)>=Math.abs(dy);"
-              "var p1,p2,c1,c2,cd;"
-              "if(horiz){"
-                "if(dx>=0){"
-                  "p1={x:sb.x+sb.width,y:sc.y};"
-                  "p2={x:db.x,y:dc.y};"
-                "}else{"
-                  "p1={x:sb.x,y:sc.y};"
-                  "p2={x:db.x+db.width,y:dc.y};"
-                "}"
-                "cd=Math.max(40,Math.abs(p2.x-p1.x)*0.5);"
-                "var sx=dx>=0?1:-1;"
-                "c1={x:p1.x+sx*cd,y:p1.y};"
-                "c2={x:p2.x-sx*cd,y:p2.y};"
-              "}else{"
-                "if(dy>=0){"
-                  "p1={x:sc.x,y:sb.y+sb.height};"
-                  "p2={x:dc.x,y:db.y};"
-                "}else{"
-                  "p1={x:sc.x,y:sb.y};"
-                  "p2={x:dc.x,y:db.y+db.height};"
-                "}"
-                "cd=Math.max(40,Math.abs(p2.y-p1.y)*0.5);"
-                "var sy=dy>=0?1:-1;"
-                "c1={x:p1.x,y:p1.y+sy*cd};"
-                "c2={x:p2.x,y:p2.y-sy*cd};"
-              "}"
-              "return'M '+p1.x+' '+p1.y+' C '+c1.x+' '+c1.y+', '+c2.x+' '+c2.y+', '+p2.x+' '+p2.y;"
-            "}"
-            // Build table map: name -> group element
-            "var tables={};"
-            "var allGroups=dragSvg.querySelectorAll('g');"
-            "allGroups.forEach(function(g){"
-              "var n=decodeCls(g.getAttribute('class'));"
-              "if(!n||n.charAt(0)==='(')return;"
-              "if(!g.querySelector('.class_header'))return;"
-              "tables[n]={group:g};"
-            "});"
-            // Build connections, hide originals, create overlay lines
-            "var connections=[];"
-            "allGroups.forEach(function(g){"
-              "var n=decodeCls(g.getAttribute('class'));"
-              "if(!n||n.charAt(0)!=='(')return;"
-              "var nn=n.replace(/&gt;/g,'>').replace(/&lt;/g,'<');"
-              "var m=/^\\((\\S+)\\s*->\\s*(\\S+)\\)/.exec(nn);"
-              "if(!m)return;"
-              "var src=tables[m[1]],dst=tables[m[2]];"
-              "if(!src||!dst)return;"
-              "g.setAttribute('display','none');"
-              "g.style.display='none';"
-              // Use <path> with cubic Bezier instead of straight <line>
-              "var path=document.createElementNS(svgNS,'path');"
-              "path.setAttribute('stroke','#7AA7D9');"
-              "path.setAttribute('stroke-width','1.5');"
-              "path.setAttribute('fill','none');"
-              // Arrow at path end points to dst (the parent/referenced table)
-              "path.setAttribute('marker-end','url(#fk-arrow)');"
-              // Append to OUTER svg so path coords match vbox() output
-              // (vbox uses outer.getScreenCTM, while inner has its own viewBox)
-              "outer.appendChild(path);"
-              "connections.push({src:src,dst:dst,path:path});"
-            "});"
-            "function updateLine(c){"
-              "var sb=vbox(c.src.group);"
-              "var db=vbox(c.dst.group);"
-              "c.path.setAttribute('d',bezierPath(sb,db));"
-            "}"
-            "connections.forEach(updateLine);"
-            // Drag handlers
-            "var dragging=null,dragTable=null,startX=0,startY=0,baseTx=0,baseTy=0;"
-            "function refreshDraggedLines(){"
-              "if(!dragTable)return;"
-              "connections.forEach(function(c){"
-                "if(c.src===dragTable||c.dst===dragTable)updateLine(c);"
-              "});"
-            "}"
-            "var draggableGroups=[];"
-            "var headers=dragSvg.querySelectorAll('.class_header');"
-            "headers.forEach(function(h){"
-              "var grp=h.parentElement;"
-              "while(grp&&grp.tagName.toLowerCase()==='g'){"
-                "var cls=grp.getAttribute('class')||'';"
-                "if(cls!=='shape'&&cls.indexOf('d2-svg')===-1&&cls.indexOf('text')===-1)break;"
-                "grp=grp.parentElement;"
-              "}"
-              "if(!grp||grp.tagName.toLowerCase()!=='g')return;"
-              // Save original transform so Reset Layout can restore it
-              "grp.__origTransform=grp.getAttribute('transform')||'';"
-              "draggableGroups.push(grp);"
-              // Bug fix: d2 renders the table name as a separate <text>
-              // sibling on top of class_header. Clicks on the text used to
-              // be swallowed by the text element so drag never started.
-              // Use header rect's screen bbox to find any sibling element
-              // visually inside it, and disable pointer-events on those
-              // so clicks fall through to the header rect underneath.
-              "try{"
-                "var hr=h.getBoundingClientRect();"
-                "var hp=h.parentElement;"
-                "if(hp){"
-                  "Array.prototype.slice.call(hp.children).forEach(function(sib){"
-                    "if(sib===h)return;"
-                    "var sr=sib.getBoundingClientRect();"
-                    "var cy=(sr.top+sr.bottom)/2;"
-                    "var cx=(sr.left+sr.right)/2;"
-                    "if(cy>=hr.top&&cy<=hr.bottom&&cx>=hr.left&&cx<=hr.right){"
-                      "sib.style.pointerEvents='none';"
-                    "}"
-                  "});"
-                "}"
-              "}catch(err){}"
-              "h.style.cursor='move';"
-              "h.addEventListener('mousedown',function(e){"
-                "if(e.button!==0)return;"
-                "e.preventDefault();e.stopPropagation();"
-                "dragging=grp;"
-                // Find which table this group belongs to
-                "var n=decodeCls(grp.getAttribute('class'));"
-                "dragTable=n&&tables[n]?tables[n]:null;"
-                "var p=svgPoint(e);"
-                "var tr=parseTransform(grp.getAttribute('transform'));"
-                "baseTx=tr[0];baseTy=tr[1];"
-                "startX=p.x;startY=p.y;"
-                "document.body.style.userSelect='none';"
-              "});"
-            "});"
-            "document.addEventListener('mousemove',function(e){"
-              "if(!dragging)return;"
-              "var p=svgPoint(e);"
-              "var nx=baseTx+(p.x-startX);"
-              "var ny=baseTy+(p.y-startY);"
-              "dragging.setAttribute('transform','translate('+nx+','+ny+')');"
-              "refreshDraggedLines();"
-            "});"
-            "document.addEventListener('mouseup',function(){"
-              "if(dragging){dragging=null;dragTable=null;document.body.style.userSelect='';}"
-            "});"
-            // Toolbar API exposed to host (called via ExecuteScriptAsync).
-            // Wrapped in window.__er namespace to avoid global pollution.
-            "window.__er={"
-              "zoomIn:function(){"
-                "scale=Math.min(4,scale+0.1);applyScale();"
-              "},"
-              "zoomOut:function(){"
-                "scale=Math.max(0.25,scale-0.1);applyScale();"
-              "},"
-              "resetZoom:function(){"
-                "scale=1;applyScale();window.scrollTo(0,0);"
-              "},"
-              "resetLayout:function(){"
-                // Restore table positions only — preserve zoom and scroll
-                "draggableGroups.forEach(function(g){"
-                  "g.setAttribute('transform',g.__origTransform);"
-                "});"
-                "connections.forEach(updateLine);"
-              "}"
-            "};"
-            // Send initial zoom % so the label is correct after load
-            "postZoom();"
-            "})();</script>"
-            "</body></html>";
+        std::string jsonUtf8 = erWsToUtf8(tab.erJsonText);
+        bool isDark = this->ActualTheme() == mux::ElementTheme::Dark;
+        const char* themeAttr = isDark ? "dark" : "light";
 
-        // UTF-8 -> wstring for NavigateToString
+        std::string html;
+        html.reserve(dagreJs.size() + panzoomJs.size() + jsonUtf8.size() + 8192);
+        html += "<!DOCTYPE html><html data-theme=\"";
+        html += themeAttr;
+        html += "\"><head><meta charset=\"utf-8\"><style>";
+        html += kERCss;
+        html += "</style></head><body>"
+                "<svg id=\"er-svg\" xmlns=\"http://www.w3.org/2000/svg\"></svg>"
+                "<script type=\"application/json\" id=\"er-data\">";
+        html += jsonUtf8;
+        html += "</script><script>";
+        html += dagreJs;
+        html += "</script><script>";
+        html += panzoomJs;
+        html += "</script><script>";
+        html += kERRenderJs;
+        html += "</script></body></html>";
+
         int sz = MultiByteToWideChar(CP_UTF8, 0, html.c_str(),
             static_cast<int>(html.size()), nullptr, 0);
         std::wstring wHtml(sz, L'\0');
@@ -3387,6 +3596,10 @@ namespace winrt::Gridex::implementation
                             auto pct = m.substr(5);
                             self->ERZoomLabel().Text(winrt::hstring(pct + L"%"));
                         }
+                        else if (m.rfind(L"png:", 0) == 0)
+                        {
+                            self->WritePngFromDataUrl(m.substr(4));
+                        }
                     }
                     catch (...) {}
                 });
@@ -3395,6 +3608,37 @@ namespace winrt::Gridex::implementation
             wv.NavigateToString(html);
         }
         catch (...) { /* leave empty if WebView fails to init */ }
+    }
+
+    // Decode a base64 data-URL from JS and drop it on disk at the
+    // path stashed by the Export PNG button handler. JS side of the
+    // exchange lives in kERRenderJs (window.__er.exportPng).
+    void WorkspacePage::WritePngFromDataUrl(const std::wstring& dataUrl)
+    {
+        if (pendingPngPath_.empty()) return;
+        auto target = std::move(pendingPngPath_);
+        pendingPngPath_.clear();
+
+        // Strip "data:image/png;base64," prefix if present.
+        auto comma = dataUrl.find(L',');
+        std::wstring b64 = (comma == std::wstring::npos)
+            ? dataUrl : dataUrl.substr(comma + 1);
+        if (b64.empty()) return;
+
+        DWORD decodedLen = 0;
+        if (!CryptStringToBinaryW(b64.c_str(), 0, CRYPT_STRING_BASE64,
+            nullptr, &decodedLen, nullptr, nullptr) || decodedLen == 0)
+            return;
+        std::vector<BYTE> bytes(decodedLen);
+        if (!CryptStringToBinaryW(b64.c_str(), 0, CRYPT_STRING_BASE64,
+            bytes.data(), &decodedLen, nullptr, nullptr))
+            return;
+        bytes.resize(decodedLen);
+
+        std::ofstream f(target, std::ios::binary);
+        if (!f.is_open()) return;
+        f.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
     }
 
     // Toggle ER diagram fullscreen: hide all surrounding chrome so the
