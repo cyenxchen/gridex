@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Shared source item list for Gridex.vcxproj and ee/windows/Gridex.Enterprise.vcxproj.
+       Paths use $(MSBuildThisFileDirectory) so they resolve relative to this
+       props file regardless of which vcxproj imports it. Edit this file (not
+       the .vcxproj) when adding, removing, or moving a .cpp/.h/.xaml/.idl. -->
+  <ItemGroup>
+    <Manifest Include="$(MSBuildThisFileDirectory)app.manifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ColorTag.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ConnectionStore.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\SidebarItem.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ContentTab.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ColumnInfo.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ShortcutsCatalog.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\TableRow.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\QueryResult.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\WorkspaceState.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\RowValue.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\TableInfo.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\QueryParameter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\DatabaseAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ConnectionManager.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\PostgreSQLAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\MySQLAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\SQLiteAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\RedisAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\MongoDBAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\MSSQLAdapter.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\SSHTunnelService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ChangeTracker.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\CredentialManager.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\AiService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\AppSettings.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\DumpRestoreService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ERDiagramService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ExportService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ImportService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)xaml-includes.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)UpdateService.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)SettingsPage.h">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)ConnectionCard.h">
+      <DependentUpon>ConnectionCard.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\ConnectionConfig.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)ConnectionFormDialog.h">
+      <DependentUpon>ConnectionFormDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)Models\DatabaseType.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)DatabaseTypePickerDialog.h">
+      <DependentUpon>DatabaseTypePickerDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)DataGridView.h">
+      <DependentUpon>DataGridView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)DetailsPanel.h">
+      <DependentUpon>DetailsPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)FilterBar.h">
+      <DependentUpon>FilterBar.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)HomePage.h">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)QueryEditorView.h">
+      <DependentUpon>QueryEditorView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)SidebarPanel.h">
+      <DependentUpon>SidebarPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)StatusBarControl.h">
+      <DependentUpon>StatusBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)StructureView.h">
+      <DependentUpon>StructureView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)TabBarControl.h">
+      <DependentUpon>TabBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)WorkspacePage.h">
+      <DependentUpon>WorkspacePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)pch.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)App.xaml.h">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)MainWindow.xaml.h">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="$(MSBuildThisFileDirectory)App.xaml" />
+    <Page Include="$(MSBuildThisFileDirectory)MainWindow.xaml" />
+    <Page Include="$(MSBuildThisFileDirectory)ConnectionCard.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)ConnectionFormDialog.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)DatabaseTypePickerDialog.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)DataGridView.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)DetailsPanel.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)FilterBar.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)HomePage.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)QueryEditorView.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)SidebarPanel.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)StatusBarControl.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)StructureView.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)TabBarControl.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)WorkspacePage.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)SettingsPage.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ConnectionCard.cpp">
+      <DependentUpon>ConnectionCard.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ConnectionFormDialog.cpp">
+      <DependentUpon>ConnectionFormDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)DatabaseTypePickerDialog.cpp">
+      <DependentUpon>DatabaseTypePickerDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)DataGridView.cpp">
+      <DependentUpon>DataGridView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)DetailsPanel.cpp">
+      <DependentUpon>DetailsPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)FilterBar.cpp">
+      <DependentUpon>FilterBar.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)HomePage.cpp">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)QueryEditorView.cpp">
+      <DependentUpon>QueryEditorView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)SidebarPanel.cpp">
+      <DependentUpon>SidebarPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)StatusBarControl.cpp">
+      <DependentUpon>StatusBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)StructureView.cpp">
+      <DependentUpon>StructureView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)TabBarControl.cpp">
+      <DependentUpon>TabBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)WorkspacePage.cpp">
+      <DependentUpon>WorkspacePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)App.xaml.cpp">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)MainWindow.xaml.cpp">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="$(GeneratedFilesDir)module.g.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ConnectionManager.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)PostgreSQLAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)MySQLAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)SQLiteAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)RedisAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)MongoDBAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)MSSQLAdapter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)SSHTunnelService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)MongoDBAdapterQuery.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)CredentialManager.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)AiService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ExportService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ImportService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)DumpRestoreService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ERDiagramService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)AppSettings.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)SettingsPage.cpp">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)UpdateService.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Midl Include="$(MSBuildThisFileDirectory)MainWindow.idl">
+      <SubType>Code</SubType>
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)ConnectionCard.idl">
+      <DependentUpon>ConnectionCard.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)ConnectionFormDialog.idl">
+      <DependentUpon>ConnectionFormDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)DatabaseTypePickerDialog.idl">
+      <DependentUpon>DatabaseTypePickerDialog.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)DataGridView.idl">
+      <DependentUpon>DataGridView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)DetailsPanel.idl">
+      <DependentUpon>DetailsPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)FilterBar.idl">
+      <DependentUpon>FilterBar.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)HomePage.idl">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)QueryEditorView.idl">
+      <DependentUpon>QueryEditorView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)SidebarPanel.idl">
+      <DependentUpon>SidebarPanel.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)StatusBarControl.idl">
+      <DependentUpon>StatusBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)StructureView.idl">
+      <DependentUpon>StructureView.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)TabBarControl.idl">
+      <DependentUpon>TabBarControl.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)WorkspacePage.idl">
+      <DependentUpon>WorkspacePage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="$(MSBuildThisFileDirectory)SettingsPage.idl">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+  </ItemGroup>
+</Project>
