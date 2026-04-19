@@ -467,6 +467,29 @@ namespace winrt::Gridex::implementation
         frame.Navigate(pageType);
     }
 
+    void HomePage::OpenMcp_Click(
+        winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
+    {
+        muxc::Frame frame{ nullptr };
+        auto fe = this->try_as<mux::FrameworkElement>();
+        while (fe)
+        {
+            if (auto f = fe.try_as<muxc::Frame>()) { frame = f; break; }
+            fe = fe.Parent().try_as<mux::FrameworkElement>();
+        }
+        if (!frame) frame = this->Frame();
+        if (!frame) return;
+
+        auto s = DBModels::AppSettings::Load();
+        s.lastPageBeforeSettings = L"Gridex.HomePage";
+        s.Save();
+
+        winrt::Windows::UI::Xaml::Interop::TypeName pageType;
+        pageType.Name = L"Gridex.MCPPage";
+        pageType.Kind = winrt::Windows::UI::Xaml::Interop::TypeKind::Metadata;
+        frame.Navigate(pageType);
+    }
+
     void HomePage::ConnectionItem_Click(
         winrt::Windows::Foundation::IInspectable const&, muxc::ItemClickEventArgs const& e)
     {

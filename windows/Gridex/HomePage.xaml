@@ -70,6 +70,20 @@
                         Padding="8,8"
                         Background="Transparent"
                         BorderThickness="0"
+                        Click="OpenMcp_Click"
+                        ToolTipService.ToolTip="MCP Server — let AI clients query your databases">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE703;" FontSize="14"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="MCP Server"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Button>
+                <Button HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left"
+                        Padding="8,8"
+                        Background="Transparent"
+                        BorderThickness="0"
                         Click="Settings_Click">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon Glyph="&#xE713;" FontSize="14"
