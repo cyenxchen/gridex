@@ -173,12 +173,23 @@ namespace winrt::Gridex::implementation
             // StdioTransport uses raw Win32 HANDLE I/O so the C
             // runtime stdio state doesn't matter.
 
-            auto s = DBModels::AppSettings::Load();
-            DBModels::MCPServerHost::ensureCreated(
-                s,
-                GridexVersionAscii(),
-                DBModels::MCPTransportMode::Stdio);
-            DBModels::MCPServerHost::start();
+            // Wrap server bootstrap in try/catch so a constructor
+            // failure (e.g. audit logger can't create its folder,
+            // settings parse error) doesn't abort() the process
+            // before the client sees any response.
+            try
+            {
+                auto s = DBModels::AppSettings::Load();
+                DBModels::MCPServerHost::ensureCreated(
+                    s,
+                    GridexVersionAscii(),
+                    DBModels::MCPTransportMode::Stdio);
+                DBModels::MCPServerHost::start();
+            }
+            catch (...)
+            {
+                ExitProcess(2);
+            }
 
             // Park the main thread; stdio reader runs on its own
             // thread inside the server. Exit when the reader thread

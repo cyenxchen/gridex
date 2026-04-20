@@ -27,7 +27,10 @@
 // %APPDATA%\Gridex\mcp-stdio-debug.log. Flip kDebug to true while
 // bringing up a new MCP client; keep false in ship builds so we
 // don't spam the audit folder.
-static constexpr bool kDebug = false;
+// Flipped on while Claude Desktop integration is stabilizing —
+// the log at %APPDATA%\Gridex\mcp-stdio-debug.log is the only
+// thing we have for post-mortem diagnosis of stdio crashes.
+static constexpr bool kDebug = true;
 
 static void dbg(const std::string& line)
 {
@@ -132,9 +135,25 @@ namespace DBModels
             }
             catch (const std::exception& e)
             {
-                dbg(std::string("readLoop parse error: ") + e.what());
-                auto resp = JSONRPCResponse::fail(nullptr, JSONRPCError::parseError());
-                send(resp);
+                dbg(std::string("readLoop parse/handler std::exception: ") + e.what());
+                try
+                {
+                    auto resp = JSONRPCResponse::fail(nullptr, JSONRPCError::parseError());
+                    send(resp);
+                } catch (...) {}
+            }
+            catch (...)
+            {
+                // SEH or non-std exception — catch-all so reader
+                // thread can never call std::terminate (which Debug
+                // CRT shows as abort() + popup).
+                dbg("readLoop unknown exception, sending internalError");
+                try
+                {
+                    auto resp = JSONRPCResponse::fail(
+                        nullptr, JSONRPCError::internalError());
+                    send(resp);
+                } catch (...) {}
             }
         }
         running_.store(false);

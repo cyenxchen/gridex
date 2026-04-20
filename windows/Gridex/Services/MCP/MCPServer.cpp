@@ -139,18 +139,36 @@ namespace DBModels
         JSONRPCResponse resp = JSONRPCResponse::fail(req.id, JSONRPCError::methodNotFound());
         const std::string& m = req.method;
 
-        if (m == "initialize")      resp = handleInitialize(req);
-        else if (m == "initialized") return; // notification — no response
-        else if (m == "tools/list") resp = handleToolsList(req);
-        else if (m == "tools/call") resp = handleToolsCall(req);
-        else if (m == "ping")
-            resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"pong", true}});
-        else if (m == "shutdown")
+        // Each handler is wrapped in try/catch so a single bad
+        // request (e.g. json serialization failure on a weird
+        // param type) cannot tear down the stdio reader thread.
+        try
         {
-            resp = JSONRPCResponse::ok(req.id, nullptr);
-            sendResponse(resp);
-            stop();
-            return;
+            if (m == "initialize")      resp = handleInitialize(req);
+            else if (m == "initialized") return; // notification — no response
+            else if (m == "tools/list") resp = handleToolsList(req);
+            else if (m == "tools/call") resp = handleToolsCall(req);
+            else if (m == "ping")
+                resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"pong", true}});
+            else if (m == "shutdown")
+            {
+                resp = JSONRPCResponse::ok(req.id, nullptr);
+                sendResponse(resp);
+                stop();
+                return;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            JSONRPCError err{
+                static_cast<int>(JSONRPCError::internalError().code),
+                std::string("handler exception: ") + e.what()
+            };
+            resp = JSONRPCResponse::fail(req.id, err);
+        }
+        catch (...)
+        {
+            resp = JSONRPCResponse::fail(req.id, JSONRPCError::internalError());
         }
 
         sendResponse(resp);
