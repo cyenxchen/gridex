@@ -746,6 +746,24 @@ namespace winrt::Gridex::implementation
         if (index < 0 || index >= static_cast<int>(cachedActivity_.size())) return;
         const auto& e = cachedActivity_[index];
 
+        selectedActivityIndex_ = index;
+
+        // Highlight the active row on the left table. Iterate the
+        // row panel's Border children and swap Background — accent
+        // tint on the selected row, transparent elsewhere. Cheap
+        // because we only have up to 200 rows.
+        if (auto rows = ActRowsPanel())
+        {
+            const auto sel  = SolidColorBrush(ColorHelper::FromArgb(60, 130, 90, 220));
+            const auto none = SolidColorBrush(ColorHelper::FromArgb(0, 0, 0, 0));
+            auto kids = rows.Children();
+            for (uint32_t i = 0; i < kids.Size(); ++i)
+            {
+                if (auto b = kids.GetAt(i).try_as<Border>())
+                    b.Background(static_cast<int>(i) == index ? sel : none);
+            }
+        }
+
         panel.Children().Clear();
 
         auto addHeader = [&](winrt::hstring text) {

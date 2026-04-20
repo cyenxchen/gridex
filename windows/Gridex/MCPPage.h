@@ -72,6 +72,7 @@ namespace winrt::Gridex::implementation
         // Cache tailed audit entries so a click on a row can look
         // up the full record by index. Populated by RefreshActivityTab.
         std::vector<DBModels::MCPAuditEntry> cachedActivity_;
+        int selectedActivityIndex_ = -1;
     };
 }
 
