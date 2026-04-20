@@ -581,8 +581,8 @@ namespace winrt::Gridex::implementation
             std::random_device rd;
             std::mt19937_64 gen(rd());
             std::uniform_int_distribution<uint64_t> dist;
-            wchar_t buf[32];
-            swprintf_s(buf, 32, L"%016llx%016llx",
+            wchar_t buf[33];
+            swprintf_s(buf, 33, L"%016llx%016llx",
                 (unsigned long long)dist(gen), (unsigned long long)dist(gen));
             return buf;
         }
@@ -649,7 +649,7 @@ namespace winrt::Gridex::implementation
     {
         auto self = get_strong();
 
-        // Dialog chrome + source-picker ComboBox + rows container.
+        // Dialog + source ComboBox + rows container.
         muxc::ContentDialog dlg;
         dlg.Title(winrt::box_value(winrt::hstring(L"Import Connections")));
         dlg.PrimaryButtonText(L"Import Selected");
@@ -675,12 +675,14 @@ namespace winrt::Gridex::implementation
                 installed ? label : std::wstring(label) + L"  (not detected)")));
             sourceCombo.Items().Append(item);
         };
-        addSource(L"DBeaver",             DBModels::DBeaverImporter::isInstalled());
-        addSource(L"DataGrip",            DBModels::DataGripImporter::isInstalled());
-        addSource(L"Navicat",             DBModels::NavicatImporter::isInstalled());
-        addSource(L"Navicat (.ncx file)", true);
-        addSource(L"TablePlus",           DBModels::TablePlusImporter::isInstalled());
-        sourceCombo.SelectedIndex(0);
+        // Kept the list conservative: no .ncx file-picker branch
+        // — that needed an inner coroutine + cross-frame captures
+        // that proved crash-prone. Users who need .ncx can import
+        // via CLI or a future dedicated entry.
+        addSource(L"DBeaver",   DBModels::DBeaverImporter::isInstalled());
+        addSource(L"DataGrip",  DBModels::DataGripImporter::isInstalled());
+        addSource(L"Navicat",   DBModels::NavicatImporter::isInstalled());
+        addSource(L"TablePlus", DBModels::TablePlusImporter::isInstalled());
         content.Children().Append(sourceCombo);
 
         muxc::TextBlock status; status.FontSize(11);
@@ -698,42 +700,43 @@ namespace winrt::Gridex::implementation
 
         dlg.Content(content);
 
-        // Holder for imported rows currently displayed (parallel
-        // with CheckBox widgets so we can zip on confirm).
+        // State shared with the SelectionChanged lambda. shared_ptr
+        // so the lambda's copy of the handles stays valid even if
+        // the outer coroutine is suspended in ShowAsync.
         auto imported = std::make_shared<std::vector<DBModels::ImportedConnection>>();
         auto checks   = std::make_shared<std::vector<muxc::CheckBox>>();
 
-        auto loadSource = [self, imported, checks, &rows, &status, this](int idx) -> winrt::fire_and_forget
+        // Synchronous scan — no coroutine, no reference captures to
+        // locals. Everything the lambda needs is captured by value.
+        auto loadSource = [imported, checks, rows, status](int idx)
         {
-            imported->clear();
-            checks->clear();
-            rows.Children().Clear();
-            status.Text(L"Scanning...");
-
             try
             {
-                // Indices must match the addSource() call order:
-                //   0 DBeaver, 1 DataGrip, 2 Navicat (registry),
-                //   3 Navicat (.ncx file), 4 TablePlus.
+                imported->clear();
+                checks->clear();
+                rows.Children().Clear();
+                status.Text(L"Scanning...");
+
+                // Indices in addSource() order: 0 DBeaver, 1 DataGrip,
+                // 2 Navicat (registry), 3 TablePlus.
                 if      (idx == 0) *imported = DBModels::DBeaverImporter::importConnections();
                 else if (idx == 1) *imported = DBModels::DataGripImporter::importConnections();
                 else if (idx == 2) *imported = DBModels::NavicatImporter::importConnections();
-                else if (idx == 3)
+                else if (idx == 3) *imported = DBModels::TablePlusImporter::importConnections();
+
+                if (imported->empty())
                 {
-                    using namespace winrt::Microsoft::Windows::Storage::Pickers;
-                    winrt::Microsoft::UI::WindowId windowId{
-                        reinterpret_cast<uint64_t>(
-                            winrt::Gridex::implementation::App::MainHwnd) };
-                    FileOpenPicker picker(windowId);
-                    picker.FileTypeFilter().Append(L".ncx");
-                    picker.FileTypeFilter().Append(L".xml");
-                    auto result = co_await picker.PickSingleFileAsync();
-                    if (result.Path().empty()) { status.Text(L"Cancelled."); co_return; }
-                    *imported = DBModels::NavicatImporter::importFromNCX(std::wstring(result.Path()));
+                    status.Text(L"No connections detected.");
+                    return;
                 }
-                else if (idx == 4)
+                status.Text(winrt::hstring(
+                    std::to_wstring(imported->size()) +
+                    L" connection(s) detected. Untick any you want to skip."));
+                for (const auto& c : *imported)
                 {
-                    *imported = DBModels::TablePlusImporter::importConnections();
+                    auto [chk, wrap] = buildImportedRow(c);
+                    checks->push_back(chk);
+                    rows.Children().Append(wrap);
                 }
             }
             catch (const std::exception& e)
@@ -741,58 +744,42 @@ namespace winrt::Gridex::implementation
                 std::string msg = e.what();
                 status.Text(winrt::hstring(L"Error: " +
                     std::wstring(msg.begin(), msg.end())));
-                co_return;
             }
-
-            if (imported->empty())
-            {
-                status.Text(L"No connections detected.");
-                co_return;
-            }
-            status.Text(winrt::hstring(
-                std::to_wstring(imported->size()) + L" connection(s) detected. Untick any you want to skip."));
-            for (const auto& c : *imported)
-            {
-                auto [chk, wrap] = buildImportedRow(c);
-                checks->push_back(chk);
-                rows.Children().Append(wrap);
-            }
+            catch (...) { status.Text(L"Scan failed."); }
         };
 
+        // Attach handler THEN seed the selection so the handler
+        // fires exactly once during visible-state setup instead of
+        // racing with a separate manual scan.
         sourceCombo.SelectionChanged(
-            [loadSource](auto&& s, auto&&) mutable
+            [loadSource](auto&& s, auto&&)
             {
                 if (auto cb = s.try_as<muxc::ComboBox>())
                     loadSource(cb.SelectedIndex());
             });
-        loadSource(0);
+        sourceCombo.SelectedIndex(0);
 
-        // Show dialog + on Import merge into ConnectionStore.
+        // Show dialog; on Primary, snapshot selections immediately
+        // (before the dialog tears its controls down) and then write
+        // to the store + refresh the sidebar.
         muxc::ContentDialogResult result{ muxc::ContentDialogResult::None };
-        try
-        {
-            auto op = dlg.ShowAsync();
-            result = co_await op;
-        }
+        try { result = co_await dlg.ShowAsync(); }
         catch (...) { co_return; }
         if (result != muxc::ContentDialogResult::Primary) co_return;
 
-        // Snapshot selections BEFORE touching the dialog again —
-        // the ComboBox/ CheckBox handles become invalid after the
-        // dialog tears down (observed as a post-dismiss crash).
-        std::vector<size_t> selectedIdxs;
+        std::vector<size_t> selected;
         for (size_t i = 0; i < imported->size() && i < checks->size(); ++i)
         {
             try
             {
                 auto ib = (*checks)[i].IsChecked();
-                if (ib && ib.Value()) selectedIdxs.push_back(i);
+                if (ib && ib.Value()) selected.push_back(i);
             }
-            catch (...) { /* checkbox detached — skip */ }
+            catch (...) { /* control detached */ }
         }
 
         int added = 0;
-        for (size_t i : selectedIdxs)
+        for (size_t i : selected)
         {
             try
             {
@@ -801,13 +788,10 @@ namespace winrt::Gridex::implementation
                 DBModels::ConnectionStore::Save(cfg);
                 ++added;
             }
-            catch (...) { /* one bad row shouldn't abort the batch */ }
+            catch (...) { /* skip one bad row, keep the batch */ }
         }
 
         try { RefreshList(); } catch (...) {}
-        // No follow-up ContentDialog — back-to-back dialogs on the
-        // same XamlRoot are fragile in WinUI 3. User sees the new
-        // rows appear in the sidebar; that's feedback enough.
-        (void)added;
+        (void)added; // feedback is the sidebar update
     }
 }
