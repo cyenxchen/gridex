@@ -43,6 +43,12 @@ namespace winrt::Gridex::implementation
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
+        // Re-render Setup tab (preview JSON + config path + button
+        // label) whenever the AI-client dropdown changes.
+        void ClientPicker_SelectionChanged(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
+
         // Connections tab handlers
         void ConnFilter_Changed(
             winrt::Microsoft::UI::Xaml::Controls::AutoSuggestBox const& sender,
@@ -75,6 +81,7 @@ namespace winrt::Gridex::implementation
     private:
         void RefreshUI();
         void RefreshOverviewUptime();
+        void RenderSetupForSelectedClient();
         winrt::Microsoft::UI::Xaml::DispatcherTimer uptimeTimer_{ nullptr };
         void ApplyStartStopButton(bool running);
         void RefreshConnectionsTab();

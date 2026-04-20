@@ -214,29 +214,9 @@ namespace winrt::Gridex::implementation
         }
 
         // ── Setup tab — only touch if realized ──────────────────
-        if (SetupConfigBox())
-        {
-            wchar_t exePath[MAX_PATH] = {};
-            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            std::wstring exe(exePath);
-            std::wstring escaped;
-            escaped.reserve(exe.size() * 2);
-            for (wchar_t c : exe) { if (c == L'\\') escaped += L"\\\\"; else escaped += c; }
-
-            std::wstring cfg =
-                L"{\n"
-                L"  \"mcpServers\": {\n"
-                L"    \"gridex\": {\n"
-                L"      \"command\": \"" + escaped + L"\",\n"
-                L"      \"args\": [\"--mcp-stdio\"]\n"
-                L"    }\n"
-                L"  }\n"
-                L"}";
-            SetupConfigBox().Text(winrt::hstring(cfg));
-            if (SetupPathText())
-                SetupPathText().Text(
-                    L"Default Claude Desktop config: %APPDATA%\\Claude\\claude_desktop_config.json");
-        }
+        // Re-renders preview + path + button label for the
+        // currently-selected client in ClientPicker.
+        if (SetupConfigBox()) RenderSetupForSelectedClient();
     }
 
     void MCPPage::ApplyStartStopButton(bool running)
@@ -412,33 +392,132 @@ namespace winrt::Gridex::implementation
     // %APPDATA%\Claude\claude_desktop_config.json, preserving any
     // existing mcpServers entries. A .bak backup is dropped next to
     // the original file before mutation so users can roll back.
+    // ── AI-client registry ───────────────────────────────────
+    // Mirrors macOS MCPClientType. Each entry describes where the
+    // config file lives + how to build the mcpServers.gridex entry
+    // (stdio exe or HTTP url). Paths accept env-var placeholders
+    // which expandEnv() resolves via ExpandEnvironmentStringsW.
+    namespace
+    {
+        struct McpClient
+        {
+            std::wstring displayName;
+            std::wstring configPath;   // may contain %APPDATA% / %USERPROFILE%
+            bool preferHttp = false;   // Claude Code / Gemini CLI honor HTTP if enabled
+        };
+
+        const std::vector<McpClient>& mcpClients()
+        {
+            static const std::vector<McpClient> v = {
+                { L"Claude Desktop",
+                  L"%APPDATA%\\Claude\\claude_desktop_config.json", false },
+                { L"Claude Code (CLI / CCD)",
+                  L"%USERPROFILE%\\.claude.json", true },
+                { L"Cursor",
+                  L"%USERPROFILE%\\.cursor\\mcp.json", false },
+                { L"Windsurf",
+                  L"%USERPROFILE%\\.windsurf\\mcp.json", false },
+                { L"Gemini CLI",
+                  L"%USERPROFILE%\\.gemini\\settings.json", true }
+            };
+            return v;
+        }
+
+        std::wstring expandEnv(const std::wstring& in)
+        {
+            DWORD needed = ExpandEnvironmentStringsW(in.c_str(), nullptr, 0);
+            if (needed == 0) return in;
+            std::wstring out(needed, L'\0');
+            ExpandEnvironmentStringsW(in.c_str(), &out[0], needed);
+            if (!out.empty() && out.back() == L'\0') out.pop_back();
+            return out;
+        }
+
+        std::string wideToUtf8(const std::wstring& w)
+        {
+            if (w.empty()) return {};
+            int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
+                                          nullptr, 0, nullptr, nullptr);
+            std::string out(sz, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
+                                 &out[0], sz, nullptr, nullptr);
+            return out;
+        }
+
+        // Per-client JSON entry. Clients that prefer HTTP (Claude
+        // Code, Gemini) get {"url": "..."} when the HTTP transport
+        // toggle is on; everyone else always gets the stdio form.
+        nlohmann::json gridexEntryFor(const McpClient& c, int httpPort, bool httpEnabled)
+        {
+            wchar_t exePath[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            const std::string exe = wideToUtf8(exePath);
+
+            if (c.preferHttp && httpEnabled)
+                return nlohmann::json{
+                    {"type", "http"},
+                    {"url", "http://127.0.0.1:" + std::to_string(httpPort) + "/"}
+                };
+
+            return nlohmann::json{
+                {"command", exe},
+                {"args", nlohmann::json::array({"--mcp-stdio"})}
+            };
+        }
+    }
+
+    void MCPPage::RenderSetupForSelectedClient()
+    {
+        if (!SetupConfigBox() || !ClientPicker()) return;
+
+        const int idx = ClientPicker().SelectedIndex();
+        const auto& list = mcpClients();
+        if (idx < 0 || idx >= static_cast<int>(list.size())) return;
+        const auto& c = list[idx];
+
+        const auto s = DBModels::AppSettings::Load();
+        const int port = s.mcpHttpPort > 0 ? s.mcpHttpPort : 3333;
+        const bool httpOn = s.mcpHttpEnabled;
+
+        // Top-level config blob — just mcpServers.gridex.
+        nlohmann::json root = {{"mcpServers", {{"gridex", gridexEntryFor(c, port, httpOn)}}}};
+        SetupConfigBox().Text(winrt::hstring(
+            DBModels::MCPToolHelpers::fromUtf8(root.dump(2))));
+
+        if (SetupPathText())
+            SetupPathText().Text(winrt::hstring(L"Config file: " + c.configPath));
+
+        if (InstallBtnText())
+            InstallBtnText().Text(winrt::hstring(L"Install for " + c.displayName));
+    }
+
+    void MCPPage::ClientPicker_SelectionChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&)
+    {
+        RenderSetupForSelectedClient();
+    }
+
+    // Install for the currently-selected client. Merges our
+    // gridex entry into the existing mcpServers object, backs the
+    // file up as .bak first, and warns if the running exe is the
+    // Debug/AppX MSIX variant (which clients can't spawn).
     void MCPPage::InstallClaude_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
     {
-        wchar_t* appDataW = nullptr;
-        if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appDataW) != S_OK)
+        if (!ClientPicker()) return;
+        const int idx = ClientPicker().SelectedIndex();
+        const auto& list = mcpClients();
+        if (idx < 0 || idx >= static_cast<int>(list.size())) return;
+        const auto& c = list[idx];
+
+        const std::wstring configPath = expandEnv(c.configPath);
+
+        // Guard: MSIX/AppX Debug exe can't be spawned as child process.
         {
-            InstallStatusText().Text(L"Cannot resolve %APPDATA%.");
-            return;
-        }
-        const std::wstring appData(appDataW);
-        CoTaskMemFree(appDataW);
-
-        const std::wstring claudeDir  = appData + L"\\Claude";
-        const std::wstring configPath = claudeDir + L"\\claude_desktop_config.json";
-        CreateDirectoryW(claudeDir.c_str(), nullptr);
-
-        // Resolve exe path for the new mcpServers.gridex entry.
-        wchar_t exePath[MAX_PATH] = {};
-        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-
-        // Guard rails: MSIX / AppX-deployed paths (VS "F5 Deploy")
-        // aren't runnable as plain child processes — Claude Desktop
-        // spawns them without the packaged activation context and
-        // Gridex aborts at load. Warn the user up front so they
-        // don't end up with a broken config pointing at AppX Debug.
-        {
+            wchar_t exePath[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
             std::wstring p(exePath);
             auto contains = [&](const wchar_t* s) {
                 return p.find(s) != std::wstring::npos;
@@ -446,18 +525,24 @@ namespace winrt::Gridex::implementation
             if (contains(L"\\AppX\\") || contains(L"\\Debug\\"))
             {
                 InstallStatusText().Text(
-                    L"Current build is Debug/AppX — Claude Desktop can't spawn an MSIX "
-                    L"package directly and it will abort at load. Switch Visual Studio "
-                    L"to the Release configuration (or run build-unpackaged.ps1) and "
-                    L"click Install again.");
+                    L"Current build is Debug/AppX — clients can't spawn an MSIX "
+                    L"package directly. Switch Visual Studio to Release or run "
+                    L"build-unpackaged.ps1 then try again.");
                 return;
             }
         }
 
+        // Ensure parent folder exists.
+        {
+            const auto sep = configPath.find_last_of(L'\\');
+            if (sep != std::wstring::npos)
+                CreateDirectoryW(configPath.substr(0, sep).c_str(), nullptr);
+        }
+
+        // Load existing (may be empty / absent / bad JSON).
         nlohmann::json existing = nlohmann::json::object();
         if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
         {
-            // Backup first.
             const std::wstring backup = configPath + L".bak";
             CopyFileW(configPath.c_str(), backup.c_str(), FALSE);
             try
@@ -472,33 +557,24 @@ namespace winrt::Gridex::implementation
         if (!existing.contains("mcpServers") || !existing["mcpServers"].is_object())
             existing["mcpServers"] = nlohmann::json::object();
 
-        // Convert exe path to utf-8 with escaped backslashes for JSON.
-        std::string exeUtf8;
-        {
-            std::wstring w(exePath);
-            int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
-                                          nullptr, 0, nullptr, nullptr);
-            exeUtf8.resize(sz);
-            WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
-                                 &exeUtf8[0], sz, nullptr, nullptr);
-        }
-
-        existing["mcpServers"]["gridex"] = {
-            {"command", exeUtf8},
-            {"args", nlohmann::json::array({"--mcp-stdio"})}
-        };
+        const auto s = DBModels::AppSettings::Load();
+        const int port = s.mcpHttpPort > 0 ? s.mcpHttpPort : 3333;
+        existing["mcpServers"]["gridex"] = gridexEntryFor(c, port, s.mcpHttpEnabled);
 
         std::ofstream out(configPath, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
         {
-            InstallStatusText().Text(L"Failed to write config. Is Claude Desktop running?");
+            InstallStatusText().Text(winrt::hstring(
+                L"Failed to write config at " + configPath +
+                L". Is " + c.displayName + L" running?"));
             return;
         }
         out << existing.dump(2);
         out.close();
 
-        InstallStatusText().Text(
-            L"Installed. Restart Claude Desktop; a .bak backup of the previous config is next to the file.");
+        InstallStatusText().Text(winrt::hstring(
+            L"Installed for " + c.displayName +
+            L". Restart the client; a .bak backup of the previous config is next to the file."));
     }
 
     // ── Connections tab ──────────────────────────────────────

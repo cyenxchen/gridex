@@ -489,13 +489,19 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Client picker. Single option for now; add
-                             Cursor / continue.dev once their install
-                             paths are documented. -->
+                        <!-- AI-client picker. Changing this
+                             regenerates the config preview + the
+                             path label + routes Install / Copy to
+                             the right file. -->
                         <StackPanel Spacing="4">
                             <TextBlock Text="AI Client" FontSize="13" FontWeight="SemiBold" />
-                            <ComboBox x:Name="ClientPicker" SelectedIndex="0" Width="260">
+                            <ComboBox x:Name="ClientPicker" SelectedIndex="0" Width="260"
+                                      SelectionChanged="ClientPicker_SelectionChanged">
                                 <ComboBoxItem Content="Claude Desktop" />
+                                <ComboBoxItem Content="Claude Code (CLI / CCD)" />
+                                <ComboBoxItem Content="Cursor" />
+                                <ComboBoxItem Content="Windsurf" />
+                                <ComboBoxItem Content="Gemini CLI" />
                             </ComboBox>
                         </StackPanel>
 
@@ -518,7 +524,8 @@
                                         MinWidth="280" Padding="16,8">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon Glyph="&#xEA86;" FontSize="14" />
-                                        <TextBlock Text="Install for Claude Desktop" />
+                                        <TextBlock x:Name="InstallBtnText"
+                                                   Text="Install for Claude Desktop" />
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="CopyConfigBtn"
