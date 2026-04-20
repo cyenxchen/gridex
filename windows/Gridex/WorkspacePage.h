@@ -173,6 +173,16 @@ namespace winrt::Gridex::implementation
         winrt::fire_and_forget FlushRedisDbAsync();
         winrt::fire_and_forget BrowseRedisKeysAsync();
 
+#ifdef GRIDEX_ENTERPRISE
+        // ── EE Mock Data Generator ────────────────
+        // Opens config dialog, spawns the service, shows progress, and
+        // reloads the grid on success. Gated because it pulls EE-only
+        // headers; the callback itself is never wired in OSS so the
+        // menu entry is hidden there.
+        winrt::fire_and_forget GenerateMockDataAsync(
+            std::wstring tableName, std::wstring schema);
+#endif
+
         // Shared progress state for dump/restore background jobs
         struct DumpRestoreJobState
         {
