@@ -62,8 +62,14 @@ namespace winrt::Gridex::implementation
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e);
 
+        void ManageConnections_Click(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
     private:
         void RefreshUI();
+        void RefreshOverviewUptime();
+        winrt::Microsoft::UI::Xaml::DispatcherTimer uptimeTimer_{ nullptr };
         void ApplyStartStopButton(bool running);
         void RefreshConnectionsTab();
         void RefreshActivityTab();

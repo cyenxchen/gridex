@@ -50,6 +50,23 @@ namespace winrt::Gridex::implementation
         this->Loaded([this](auto&&, auto&&) {
             try { RefreshUI(); }
             catch (...) { /* never block page from showing */ }
+
+            // 1 Hz uptime tick — only repaints the Overview subtitle
+            // so we don't churn Config/Connections rebuilds.
+            try
+            {
+                uptimeTimer_ = mux::DispatcherTimer();
+                uptimeTimer_.Interval(winrt::Windows::Foundation::TimeSpan{
+                    std::chrono::seconds(1) });
+                uptimeTimer_.Tick([this](auto&&, auto&&) {
+                    try { RefreshOverviewUptime(); } catch (...) {}
+                });
+                uptimeTimer_.Start();
+            }
+            catch (...) {}
+        });
+        this->Unloaded([this](auto&&, auto&&) {
+            if (uptimeTimer_) { uptimeTimer_.Stop(); uptimeTimer_ = nullptr; }
         });
     }
 
@@ -92,6 +109,86 @@ namespace winrt::Gridex::implementation
             else
             {
                 ToolsCountText().Text(L"0 tools (server stopped)");
+            }
+        }
+
+        // Overview: uptime subtitle + recent activity list.
+        RefreshOverviewUptime();
+
+        if (auto recent = RecentActivityPanel())
+        {
+            recent.Children().Clear();
+            std::vector<DBModels::MCPAuditEntry> last;
+            try
+            {
+                if (srv)
+                    last = srv->auditLogger().recentEntries(5);
+                else
+                {
+                    DBModels::MCPAuditLogger tmp(
+                        settings.mcpAuditMaxSizeMB, settings.mcpAuditRetentionDays);
+                    last = tmp.recentEntries(5);
+                }
+            }
+            catch (...) {}
+
+            if (last.empty())
+            {
+                winrt::Microsoft::UI::Xaml::Controls::TextBlock empty;
+                empty.Text(L"No activity yet");
+                empty.FontSize(12);
+                empty.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                    winrt::Windows::UI::ColorHelper::FromArgb(255, 150, 150, 150)));
+                recent.Children().Append(empty);
+            }
+            else
+            {
+                for (const auto& e : last)
+                {
+                    winrt::Microsoft::UI::Xaml::Controls::Grid row;
+                    row.ColumnSpacing(8);
+                    winrt::Microsoft::UI::Xaml::Controls::ColumnDefinition c0, c1, c2;
+                    c0.Width(winrt::Microsoft::UI::Xaml::GridLengthHelper::FromValueAndType(
+                        1, winrt::Microsoft::UI::Xaml::GridUnitType::Star));
+                    c1.Width(winrt::Microsoft::UI::Xaml::GridLengthHelper::FromPixels(60));
+                    c2.Width(winrt::Microsoft::UI::Xaml::GridLengthHelper::FromPixels(70));
+                    row.ColumnDefinitions().Append(c0);
+                    row.ColumnDefinitions().Append(c1);
+                    row.ColumnDefinitions().Append(c2);
+
+                    winrt::Microsoft::UI::Xaml::Controls::TextBlock tool;
+                    tool.Text(winrt::hstring(DBModels::MCPToolHelpers::fromUtf8(e.tool)));
+                    tool.FontSize(12);
+                    tool.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Consolas"));
+                    winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(tool, 0);
+                    row.Children().Append(tool);
+
+                    winrt::Microsoft::UI::Xaml::Controls::TextBlock status;
+                    status.FontSize(11);
+                    const bool ok = e.result.status == DBModels::MCPAuditStatus::Success;
+                    status.Text(ok ? L"success" : (e.result.status == DBModels::MCPAuditStatus::Error ? L"error" : L"denied"));
+                    status.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                        winrt::Windows::UI::ColorHelper::FromArgb(
+                            255,
+                            ok ? 46 : 220,
+                            ok ? 139 : 53,
+                            ok ? 87 : 69)));
+                    winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(status, 1);
+                    row.Children().Append(status);
+
+                    winrt::Microsoft::UI::Xaml::Controls::TextBlock dur;
+                    dur.Text(winrt::hstring(std::to_wstring(e.result.durationMs) + L"ms"));
+                    dur.FontSize(11);
+                    dur.FontFamily(winrt::Microsoft::UI::Xaml::Media::FontFamily(L"Consolas"));
+                    dur.Foreground(winrt::Microsoft::UI::Xaml::Media::SolidColorBrush(
+                        winrt::Windows::UI::ColorHelper::FromArgb(255, 150, 150, 150)));
+                    winrt::Microsoft::UI::Xaml::Controls::Grid::SetColumn(dur, 2);
+                    row.Children().Append(dur);
+
+                    recent.Children().Append(row);
+                }
+                if (auto countLbl = RecentActivityCount())
+                    countLbl.Text(winrt::hstring(std::to_wstring(last.size()) + L" events"));
             }
         }
 
@@ -189,6 +286,7 @@ namespace winrt::Gridex::implementation
             // Stop.
             DBModels::MCPServerHost::stop();
             settings.mcpEnabled = false;
+            settings.mcpStartTime = 0; // clear uptime anchor
             settings.Save();
         }
         else
@@ -217,6 +315,11 @@ namespace winrt::Gridex::implementation
 
             DBModels::MCPServerHost::start();
             settings.mcpEnabled = true;
+            // Stamp mcpStartTime so the Overview uptime counter has
+            // an anchor. Reset on stop below.
+            settings.mcpStartTime = static_cast<int64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count());
             settings.Save();
         }
         RefreshUI();
@@ -924,5 +1027,61 @@ namespace winrt::Gridex::implementation
             else if (idx == 4) RefreshUI(); // Config loads from AppSettings
         }
         catch (...) { /* don't kill navigation */ }
+    }
+
+    // Paint the "Running for Xh Ym · N of M connections exposed"
+    // subtitle on the Overview card. Called on Loaded and once per
+    // second from the uptime timer.
+    void MCPPage::RefreshOverviewUptime()
+    {
+        auto sub = RunningSubtitle();
+        if (!sub) return;
+
+        auto srv = DBModels::MCPServerHost::instance();
+        const bool running = srv && srv->isRunning();
+        if (!running)
+        {
+            sub.Text(L"Enable below to let AI clients connect.");
+            return;
+        }
+
+        auto settings = DBModels::AppSettings::Load();
+        std::wstring uptime = L"just started";
+        if (settings.mcpStartTime > 0)
+        {
+            const int64_t now = static_cast<int64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count());
+            int64_t dt = now - settings.mcpStartTime;
+            if (dt < 0) dt = 0;
+            const int h = static_cast<int>(dt / 3600);
+            const int m = static_cast<int>((dt % 3600) / 60);
+            const int s = static_cast<int>(dt % 60);
+            if (h > 0)       uptime = std::to_wstring(h) + L"h " + std::to_wstring(m) + L"m";
+            else if (m > 0)  uptime = std::to_wstring(m) + L"m " + std::to_wstring(s) + L"s";
+            else             uptime = std::to_wstring(s) + L"s";
+        }
+
+        // Count exposed connections (non-Locked).
+        int exposed = 0, total = 0;
+        for (const auto& c : DBModels::ConnectionStore::Load())
+        {
+            ++total;
+            if (c.mcpMode != DBModels::MCPConnectionMode::Locked) ++exposed;
+        }
+
+        sub.Text(winrt::hstring(
+            L"Running for " + uptime + L" · " +
+            std::to_wstring(exposed) + L" of " + std::to_wstring(total) +
+            L" connections exposed"));
+    }
+
+    // Overview → "Manage Connections..." button: jump to the
+    // Connections tab (Pivot index 1).
+    void MCPPage::ManageConnections_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        if (auto t = Tabs()) t.SelectedIndex(1);
     }
 }

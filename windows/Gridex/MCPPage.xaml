@@ -114,7 +114,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Access summary (per-mode connection counts) -->
+                        <!-- Access summary (per-mode connection counts). -->
                         <StackPanel Spacing="8">
                             <TextBlock Text="Access" FontSize="14" FontWeight="SemiBold" />
                             <Border Padding="16" CornerRadius="8"
@@ -155,6 +155,16 @@
                                             <TextBlock x:Name="ReadWriteCount" Text="0" />
                                         </StackPanel>
                                     </Grid>
+                                    <Button x:Name="ManageConnectionsBtn"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,4,0,0"
+                                            Padding="12,4"
+                                            Click="ManageConnections_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xE762;" FontSize="12" />
+                                            <TextBlock Text="Manage Connections..." FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -211,6 +221,35 @@
                             <TextBlock x:Name="ToolsCountText"
                                        Text="0 tools"
                                        FontSize="13" />
+                        </StackPanel>
+
+                        <!-- Recent Activity — last 5 audit entries.
+                             Populated by RefreshUI from
+                             MCPAuditLogger::recentEntries(5). -->
+                        <StackPanel Spacing="8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Recent Activity"
+                                           FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock x:Name="RecentActivityCount"
+                                           Grid.Column="1"
+                                           FontSize="11"
+                                           VerticalAlignment="Bottom"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            </Grid>
+                            <Border Padding="12" CornerRadius="8"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <StackPanel x:Name="RecentActivityPanel" Spacing="6">
+                                    <TextBlock Text="No activity yet"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
