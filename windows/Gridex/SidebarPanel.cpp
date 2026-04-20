@@ -446,6 +446,20 @@ namespace winrt::Gridex::implementation
                 { if (OnImportTable) OnImportTable(exportName, exportSchema); });
                 contextMenu.Items().Append(importItem);
 
+                // Generate Data — optional extension hook. Item only appears
+                // when a host wires OnGenerateMockData (e.g. EE build);
+                // OSS build leaves callback unset → menu unchanged.
+                if (item.type == DBModels::SidebarItemType::Table && OnGenerateMockData)
+                {
+                    muxc::MenuFlyoutItem genItem;
+                    genItem.Text(L"Generate Data...");
+                    genItem.Icon(muxc::FontIcon());
+                    genItem.Icon().as<muxc::FontIcon>().Glyph(L"\xE8BD"); // AutoFillTemplate
+                    genItem.Click([this, exportName, exportSchema](auto&&, auto&&)
+                    { if (OnGenerateMockData) OnGenerateMockData(exportName, exportSchema); });
+                    contextMenu.Items().Append(genItem);
+                }
+
                 // Truncate + Delete — destructive. Only offered for
                 // real tables (not views) since views can't be truncated
                 // and DROP VIEW needs a different code path. Host shows

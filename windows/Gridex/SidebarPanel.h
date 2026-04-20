@@ -40,6 +40,11 @@ namespace winrt::Gridex::implementation
         std::function<void(const std::wstring& tableName,
                            const std::wstring& schema)> OnImportTable;
 
+        // Extension hook: generic "Generate Data..." menu item on SQL tables.
+        // Hidden from the menu when callback is unset (keeps OSS menu clean).
+        std::function<void(const std::wstring& tableName,
+                           const std::wstring& schema)> OnGenerateMockData;
+
         // Callback for "Show ER Diagram" on a Database/Schema group
         std::function<void(const std::wstring& schema)> OnShowERDiagram;
 
