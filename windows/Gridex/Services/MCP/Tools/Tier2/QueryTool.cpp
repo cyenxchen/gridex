@@ -8,12 +8,15 @@
 
 namespace DBModels
 {
-    static bool isSQLType(DatabaseType t)
+    // Engines that accept `LIMIT n` as SQL-standard tail. MSSQL is
+    // deliberately excluded — it uses `TOP n` after SELECT, which
+    // we cannot safely inject without rewriting the statement.
+    // Callers targeting MSSQL must emit their own TOP clause.
+    static bool acceptsLimitSuffix(DatabaseType t)
     {
         return t == DatabaseType::PostgreSQL ||
                t == DatabaseType::MySQL      ||
-               t == DatabaseType::SQLite     ||
-               t == DatabaseType::MSSQLServer;
+               t == DatabaseType::SQLite;
     }
 
     MCPToolResult QueryTool::execute(const nlohmann::json& params, MCPToolContext& ctx)
@@ -48,10 +51,15 @@ namespace DBModels
         // sql untouched otherwise (Redis/Mongo adapters carry their
         // own shape).
         std::wstring sqlW = MCPToolHelpers::fromUtf8(sqlUtf8);
-        if (isSQLType(config.databaseType))
+        if (acceptsLimitSuffix(config.databaseType))
         {
             std::wstring upper = sqlW;
             std::transform(upper.begin(), upper.end(), upper.begin(), ::towupper);
+            // `upper.find(L"LIMIT")` also catches the substring inside
+            // a column name or comment, but since the caller sees a
+            // working query either way this false-positive only costs
+            // them a missing extra LIMIT clause — safer than double
+            // LIMIT. String sanitizer already ran upstream.
             if (upper.find(L"LIMIT") == std::wstring::npos)
             {
                 std::wstring trimmed = sqlW;

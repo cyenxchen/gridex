@@ -31,6 +31,10 @@ namespace winrt::Gridex::implementation
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 
+        void InstallClaude_Click(
+            winrt::Windows::Foundation::IInspectable const& sender,
+            winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+
     private:
         void RefreshUI();
         void ApplyStartStopButton(bool running);

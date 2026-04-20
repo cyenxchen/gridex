@@ -17,14 +17,16 @@
 namespace DBModels { namespace MCPServerHost {
 
 // Ensures a server exists (creating on demand with the supplied
-// settings + mode) and returns a non-owning pointer. Safe to call
-// repeatedly — subsequent calls just return the existing instance.
-MCPServer* ensureCreated(const AppSettings& settings,
-                         const std::string& version,
-                         MCPTransportMode mode);
+// settings + mode) and returns a shared_ptr. Caller keeps the
+// shared_ptr for as long as it needs to touch the server — avoids
+// UAF races with stop() running on a different thread.
+std::shared_ptr<MCPServer> ensureCreated(const AppSettings& settings,
+                                         const std::string& version,
+                                         MCPTransportMode mode);
 
-// Returns the shared server, or nullptr if it has never been created.
-MCPServer* instance();
+// Returns the shared server, or empty shared_ptr if none exists.
+// Hold onto the returned shared_ptr for the duration of the call.
+std::shared_ptr<MCPServer> instance();
 
 // Starts the shared server (idempotent).
 void start();

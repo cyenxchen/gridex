@@ -24,6 +24,7 @@
 #include "Security/MCPApprovalGate.h"
 #include "Audit/MCPAuditLogger.h"
 #include "Transport/StdioTransport.h"
+#include "Transport/HttpTransport.h"
 #include "../../Models/MCP/MCPProtocol.h"
 #include "../../Models/MCP/MCPServerInfo.h"
 #include "../../Models/AppSettings.h"
@@ -42,6 +43,11 @@ namespace DBModels
         MCPServer(AppSettings settings,
                   std::string serverVersion,
                   MCPTransportMode mode);
+        // Out-of-line: HttpTransport uses pimpl and requires the
+        // MCPServer dtor be defined where HttpTransport::Impl is
+        // complete (i.e. MCPServer.cpp, which includes HttpTransport.h
+        // whose .cpp has the full Impl struct).
+        ~MCPServer();
 
         // Start accepting requests.
         void start();
@@ -81,6 +87,7 @@ namespace DBModels
         MCPAuditLogger auditLogger_;
         MCPToolRegistry toolRegistry_;
         StdioTransport stdio_;
+        HttpTransport  http_;
 
         MCPClientInfo clientInfo_;  // populated on initialize
 

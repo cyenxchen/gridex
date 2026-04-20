@@ -69,8 +69,19 @@ namespace DBModels
             {
                 const std::string preview = sql.size() > 200 ? sql.substr(0, 200) + "..." : sql;
                 i.sqlPreview = preview;
-                const std::size_t h = std::hash<std::string>{}(sql);
-                i.inputHash = "h64:" + std::to_string(h);
+                // FNV-1a 64-bit — deterministic across processes so
+                // the inputHash field stays stable for cross-session
+                // correlation. Not cryptographic; display-only aid.
+                uint64_t h = 14695981039346656037ULL;
+                for (unsigned char c : sql)
+                {
+                    h ^= c;
+                    h *= 1099511628211ULL;
+                }
+                char buf[24];
+                snprintf(buf, sizeof(buf), "fnv1a:%016llx",
+                         static_cast<unsigned long long>(h));
+                i.inputHash = buf;
             }
             i.paramsCount = paramsCount;
             return i;

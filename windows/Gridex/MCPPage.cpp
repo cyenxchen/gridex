@@ -11,6 +11,9 @@
 #include "GridexVersion.h"
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.UI.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
+#include <shlobj.h>
 
 namespace winrt::Gridex::implementation
 {
@@ -50,8 +53,13 @@ namespace winrt::Gridex::implementation
         QphBox().Value(static_cast<double>(settings.mcpQueriesPerHour));
         WpmBox().Value(static_cast<double>(settings.mcpWritesPerMinute));
         DdlBox().Value(static_cast<double>(settings.mcpDdlPerMinute));
+        QueryTimeoutBox().Value(static_cast<double>(settings.mcpQueryTimeout));
+        ApprovalTimeoutBox().Value(static_cast<double>(settings.mcpApprovalTimeout));
+        ConnectionTimeoutBox().Value(static_cast<double>(settings.mcpConnectionTimeout));
         RetentionBox().Value(static_cast<double>(settings.mcpAuditRetentionDays));
         MaxSizeBox().Value(static_cast<double>(settings.mcpAuditMaxSizeMB));
+        RequireApprovalToggle().IsOn(settings.mcpRequireApprovalForWrites);
+        AllowRemoteHttpToggle().IsOn(settings.mcpAllowRemoteHTTP);
 
         // Count connections per MCP mode.
         int locked = 0, ro = 0, rw = 0;
@@ -70,7 +78,7 @@ namespace winrt::Gridex::implementation
         ReadWriteCount().Text(winrt::hstring(std::to_wstring(rw)));
 
         // Server state.
-        auto* srv = DBModels::MCPServerHost::instance();
+        auto srv = DBModels::MCPServerHost::instance();
         const bool running = srv && srv->isRunning();
         ApplyStartStopButton(running);
         if (running)
@@ -147,7 +155,7 @@ namespace winrt::Gridex::implementation
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
     {
         auto settings = DBModels::AppSettings::Load();
-        auto* srv = DBModels::MCPServerHost::instance();
+        auto srv = DBModels::MCPServerHost::instance();
 
         if (srv && srv->isRunning())
         {
@@ -166,7 +174,7 @@ namespace winrt::Gridex::implementation
                 DBModels::MCPTransportMode::HttpOnly);
 
             // Hook XamlRoot + dispatcher so approval dialogs can open.
-            auto* running = DBModels::MCPServerHost::instance();
+            auto running = DBModels::MCPServerHost::instance();
             if (running)
             {
                 auto content = this->XamlRoot();
@@ -215,9 +223,86 @@ namespace winrt::Gridex::implementation
         s.mcpQueriesPerHour   = static_cast<int>(QphBox().Value());
         s.mcpWritesPerMinute  = static_cast<int>(WpmBox().Value());
         s.mcpDdlPerMinute     = static_cast<int>(DdlBox().Value());
+        s.mcpQueryTimeout      = static_cast<int>(QueryTimeoutBox().Value());
+        s.mcpApprovalTimeout   = static_cast<int>(ApprovalTimeoutBox().Value());
+        s.mcpConnectionTimeout = static_cast<int>(ConnectionTimeoutBox().Value());
         s.mcpAuditRetentionDays = static_cast<int>(RetentionBox().Value());
         s.mcpAuditMaxSizeMB     = static_cast<int>(MaxSizeBox().Value());
+        s.mcpRequireApprovalForWrites = RequireApprovalToggle().IsOn();
+        s.mcpAllowRemoteHTTP          = AllowRemoteHttpToggle().IsOn();
         s.Save();
         SaveConfigStatusText().Text(L"Saved. Restart the server to apply rate-limit / audit changes.");
+    }
+
+    // Install for Claude Desktop — merges the Gridex entry into
+    // %APPDATA%\Claude\claude_desktop_config.json, preserving any
+    // existing mcpServers entries. A .bak backup is dropped next to
+    // the original file before mutation so users can roll back.
+    void MCPPage::InstallClaude_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
+    {
+        wchar_t* appDataW = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appDataW) != S_OK)
+        {
+            InstallStatusText().Text(L"Cannot resolve %APPDATA%.");
+            return;
+        }
+        const std::wstring appData(appDataW);
+        CoTaskMemFree(appDataW);
+
+        const std::wstring claudeDir  = appData + L"\\Claude";
+        const std::wstring configPath = claudeDir + L"\\claude_desktop_config.json";
+        CreateDirectoryW(claudeDir.c_str(), nullptr);
+
+        // Resolve exe path for the new mcpServers.gridex entry.
+        wchar_t exePath[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+        nlohmann::json existing = nlohmann::json::object();
+        if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            // Backup first.
+            const std::wstring backup = configPath + L".bak";
+            CopyFileW(configPath.c_str(), backup.c_str(), FALSE);
+            try
+            {
+                std::ifstream in(configPath, std::ios::binary);
+                if (in.is_open()) existing = nlohmann::json::parse(in, nullptr, false);
+                if (existing.is_discarded()) existing = nlohmann::json::object();
+            }
+            catch (...) { existing = nlohmann::json::object(); }
+        }
+
+        if (!existing.contains("mcpServers") || !existing["mcpServers"].is_object())
+            existing["mcpServers"] = nlohmann::json::object();
+
+        // Convert exe path to utf-8 with escaped backslashes for JSON.
+        std::string exeUtf8;
+        {
+            std::wstring w(exePath);
+            int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
+                                          nullptr, 0, nullptr, nullptr);
+            exeUtf8.resize(sz);
+            WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
+                                 &exeUtf8[0], sz, nullptr, nullptr);
+        }
+
+        existing["mcpServers"]["gridex"] = {
+            {"command", exeUtf8},
+            {"args", nlohmann::json::array({"--mcp-stdio"})}
+        };
+
+        std::ofstream out(configPath, std::ios::binary | std::ios::trunc);
+        if (!out.is_open())
+        {
+            InstallStatusText().Text(L"Failed to write config. Is Claude Desktop running?");
+            return;
+        }
+        out << existing.dump(2);
+        out.close();
+
+        InstallStatusText().Text(
+            L"Installed. Restart Claude Desktop; a .bak backup of the previous config is next to the file.");
     }
 }

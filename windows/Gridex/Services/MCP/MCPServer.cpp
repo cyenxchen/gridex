@@ -48,6 +48,8 @@ namespace DBModels
         }
     }
 
+    MCPServer::~MCPServer() = default;
+
     MCPServer::MCPServer(AppSettings settings, std::string serverVersion, MCPTransportMode mode)
         : settings_(std::move(settings)),
           serverVersion_(std::move(serverVersion)),
@@ -77,13 +79,41 @@ namespace DBModels
             stdio_.setRequestHandler([this](const JSONRPCRequest& r){ handleRequest(r); });
             stdio_.start();
         }
-        // HTTP transport start — Phase 4d (TODO).
+        else
+        {
+            // HttpOnly: always start HTTP on localhost. If the user
+            // flipped `mcpHttpEnabled` in settings the port comes
+            // from there; otherwise fall back to the default 3333.
+            // Remote binding (`0.0.0.0`) only when `allowRemoteHTTP`.
+            const int port = settings_.mcpHttpEnabled
+                ? settings_.mcpHttpPort : 3333;
+            const std::string host = settings_.mcpAllowRemoteHTTP
+                ? "0.0.0.0" : "127.0.0.1";
+
+            http_.setRequestHandler(
+                [this](const JSONRPCRequest& r) -> JSONRPCResponse {
+                    // HTTP is synchronous — we build the response
+                    // inline instead of routing through sendResponse.
+                    // Reuse the same dispatch branches handleRequest
+                    // uses by returning its output directly.
+                    if (r.method == "initialize")      return handleInitialize(r);
+                    if (r.method == "tools/list")      return handleToolsList(r);
+                    if (r.method == "tools/call")      return handleToolsCall(r);
+                    if (r.method == "ping")
+                        return JSONRPCResponse::ok(r.id, nlohmann::json{{"pong", true}});
+                    if (r.method == "shutdown")       { stop(); return JSONRPCResponse::ok(r.id, nullptr); }
+                    if (r.method == "initialized")     return JSONRPCResponse::ok(r.id, nullptr);
+                    return JSONRPCResponse::fail(r.id, JSONRPCError::methodNotFound());
+                });
+            http_.start(host, port);
+        }
     }
 
     void MCPServer::stop()
     {
         if (!running_.exchange(false)) return;
         stdio_.stop();
+        http_.stop();
         auditLogger_.close();
         pool_.releaseAll();
     }

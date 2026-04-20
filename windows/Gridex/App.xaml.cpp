@@ -10,6 +10,7 @@
 #include <string>
 #include <cwchar>
 #include <condition_variable>
+#include <shlobj.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -161,6 +162,17 @@ namespace winrt::Gridex::implementation
             // other MCP clients with stdin/stdout piped. No XAML
             // window is created; we block the main thread until the
             // reader hits EOF and then exit.
+            //
+            // Gridex is GUI subsystem. When launched with piped
+            // stdin/stdout (Claude Desktop, cmd `|`), those handles
+            // are already inherited — GetStdHandle returns them
+            // directly. DO NOT call AttachConsole here: on a piped
+            // launch it would replace our inherited handles with a
+            // fresh console and the piped data would be lost.
+            //
+            // StdioTransport uses raw Win32 HANDLE I/O so the C
+            // runtime stdio state doesn't matter.
+
             auto s = DBModels::AppSettings::Load();
             DBModels::MCPServerHost::ensureCreated(
                 s,
@@ -173,9 +185,10 @@ namespace winrt::Gridex::implementation
             // signals shutdown (EOF or "shutdown" JSON-RPC).
             std::mutex mtx; std::condition_variable cv; bool done = false;
             std::thread waiter([&]{
-                while (auto* srv = DBModels::MCPServerHost::instance())
+                while (true)
                 {
-                    if (!srv->isRunning()) break;
+                    auto srv = DBModels::MCPServerHost::instance();
+                    if (!srv || !srv->isRunning()) break;
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
                 { std::lock_guard<std::mutex> lk(mtx); done = true; }

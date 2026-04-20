@@ -7,6 +7,7 @@
 #include "../../../Models/CredentialManager.h"
 #include "../../../Models/MCP/MCPAuditEntry.h"
 #include <algorithm>
+#include <windows.h>
 
 namespace DBModels
 {
@@ -14,8 +15,16 @@ namespace DBModels
     {
         if (!params.contains("connection_id") || !params["connection_id"].is_string())
             throw MCPToolError::invalidParameters("connection_id is required");
-        auto utf8 = params["connection_id"].get<std::string>();
-        return std::wstring(utf8.begin(), utf8.end()); // ASCII-only ids (UUIDs)
+        const auto utf8 = params["connection_id"].get<std::string>();
+        // Proper UTF-8 decode — char-by-char widening would corrupt
+        // any non-ASCII id (future cloud sync may produce them).
+        if (utf8.empty()) return {};
+        int sz = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
+                                      static_cast<int>(utf8.size()), nullptr, 0);
+        std::wstring out(sz, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(),
+                            static_cast<int>(utf8.size()), &out[0], sz);
+        return out;
     }
 
     std::pair<std::shared_ptr<DatabaseAdapter>, ConnectionConfig>

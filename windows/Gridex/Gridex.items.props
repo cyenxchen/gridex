@@ -45,6 +45,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)Services\MCP\Tools\MCPTool.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)Services\MCP\Tools\MCPToolRegistry.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)Services\MCP\Transport\StdioTransport.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)Services\MCP\Transport\HttpTransport.h" />
     <!-- MCP Phase 5 — tools (subset: list_connections, list_tables,
          describe_table, query). Tier 3 write tools land in a follow-up. -->
     <ClInclude Include="$(MSBuildThisFileDirectory)Services\MCP\Tools\MCPToolHelpers.h" />
@@ -333,6 +334,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)Services\MCP\Transport\StdioTransport.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)Services\MCP\Transport\HttpTransport.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)Services\MCP\Tools\MCPBuiltinTools.cpp">
