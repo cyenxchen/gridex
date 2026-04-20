@@ -155,9 +155,14 @@ namespace {
         DatabaseType   dbType;
     };
 
-    const std::array<NavicatHive, 7>& hives()
+    const std::array<NavicatHive, 8>& hives()
     {
-        static const std::array<NavicatHive, 7> v{{
+        // Plain `Navicat\Servers` is the legacy "Navicat for MySQL"
+        // standalone hive — still used on machines that started on
+        // that product before upgrading to Premium. Missing this
+        // cost a user their second MySQL connection during import.
+        static const std::array<NavicatHive, 8> v{{
+            { L"Software\\PremiumSoft\\Navicat\\Servers",         DatabaseType::MySQL },
             { L"Software\\PremiumSoft\\NavicatPG\\Servers",       DatabaseType::PostgreSQL },
             { L"Software\\PremiumSoft\\NavicatMARIADB\\Servers",  DatabaseType::MySQL },
             { L"Software\\PremiumSoft\\NavicatMSSQL\\Servers",    DatabaseType::MSSQLServer },
