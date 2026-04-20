@@ -285,6 +285,27 @@ namespace winrt::Gridex::implementation
         wchar_t exePath[MAX_PATH] = {};
         GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 
+        // Guard rails: MSIX / AppX-deployed paths (VS "F5 Deploy")
+        // aren't runnable as plain child processes — Claude Desktop
+        // spawns them without the packaged activation context and
+        // Gridex aborts at load. Warn the user up front so they
+        // don't end up with a broken config pointing at AppX Debug.
+        {
+            std::wstring p(exePath);
+            auto contains = [&](const wchar_t* s) {
+                return p.find(s) != std::wstring::npos;
+            };
+            if (contains(L"\\AppX\\") || contains(L"\\Debug\\"))
+            {
+                InstallStatusText().Text(
+                    L"Current build is Debug/AppX — Claude Desktop can't spawn an MSIX "
+                    L"package directly and it will abort at load. Switch Visual Studio "
+                    L"to the Release configuration (or run build-unpackaged.ps1) and "
+                    L"click Install again.");
+                return;
+            }
+        }
+
         nlohmann::json existing = nlohmann::json::object();
         if (GetFileAttributesW(configPath.c_str()) != INVALID_FILE_ATTRIBUTES)
         {
