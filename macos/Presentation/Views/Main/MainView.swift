@@ -272,12 +272,8 @@ struct HomeView: View {
                     .padding(.vertical, 6)
                     .padding(.horizontal, 14)
 
-                HomeActionButton(icon: "plus.circle.fill", title: "New Connection") {
-                    appState.showDBTypePicker = true
-                }
-                HomeActionButton(icon: "folder.badge.plus", title: "New Group") {
-                    newGroupName = ""
-                    showNewGroupAlert = true
+                HomeActionButton(icon: "bolt.horizontal.circle.fill", title: "MCP config") {
+                    MCPWindowController.show()
                 }
             }
             .padding(.horizontal, 20)

@@ -89,7 +89,10 @@ struct AIChatView: View {
             refreshAPIKeyState()
             Task { await loadProviders() }
         }
-        .onChange(of: activeProviderID) { _, _ in refreshAPIKeyState() }
+        .onChange(of: activeProviderID) { _, _ in
+            refreshAPIKeyState()
+            Task { await loadProviders() }
+        }
         .onChange(of: providerType) { _, _ in refreshAPIKeyState() }
         .onChange(of: isEnabled) { _, _ in refreshAPIKeyState() }
     }
