@@ -145,9 +145,21 @@ namespace DBModels
         try
         {
             if (m == "initialize")      resp = handleInitialize(req);
-            else if (m == "initialized") return; // notification — no response
+            // MCP notifications — client fire-and-forget, no response.
+            else if (m == "initialized") return;
+            else if (m == "notifications/initialized") return;
             else if (m == "tools/list") resp = handleToolsList(req);
             else if (m == "tools/call") resp = handleToolsCall(req);
+            // Claude CLI probes these even when our initialize
+            // doesn't advertise prompts/resources — return empty
+            // lists so the client treats the server as healthy
+            // instead of disconnecting on methodNotFound.
+            else if (m == "prompts/list")
+                resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"prompts", nlohmann::json::array()}});
+            else if (m == "resources/list")
+                resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"resources", nlohmann::json::array()}});
+            else if (m == "resources/templates/list")
+                resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"resourceTemplates", nlohmann::json::array()}});
             else if (m == "ping")
                 resp = JSONRPCResponse::ok(req.id, nlohmann::json{{"pong", true}});
             else if (m == "shutdown")

@@ -29,16 +29,18 @@ namespace DBModels
         }
     };
 
-    // Capabilities advertised in `initialize` result. Matches
-    // macOS handleInitialize() — exposes tools + resources +
-    // prompts + logging capability flags.
+    // Capabilities advertised in `initialize` result. We only
+    // implement `tools` right now — advertising `resources` /
+    // `prompts` the way macOS does would be a protocol lie since
+    // we return methodNotFound on their list endpoints, and
+    // Claude CLI drops the connection when the server contradicts
+    // its own capability manifest. Expose tools only; prompts +
+    // resources land when their handlers do.
     inline nlohmann::json mcpDefaultCapabilities()
     {
         return {
-            {"tools",     {{"listChanged", true}}},
-            {"resources", {{"subscribe", true}, {"listChanged", true}}},
-            {"prompts",   {{"listChanged", true}}},
-            {"logging",   nlohmann::json::object()}
+            {"tools",   {{"listChanged", true}}},
+            {"logging", nlohmann::json::object()}
         };
     }
 }
