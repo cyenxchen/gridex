@@ -1,9 +1,12 @@
-#include <windows.h>
-
-// httplib pulls in WinSock2 — include before any other Windows headers
-// to avoid winsock.h vs winsock2.h ordering conflicts.
+// windows.h transitively drags in the legacy winsock.h whose structs
+// (sockaddr, fd_set, timeval...) clash with winsock2.h. Gate that off
+// with WIN32_LEAN_AND_MEAN and explicitly include winsock2 FIRST so
+// httplib's own winsock2 include is a no-op. Order here matters —
+// do not rearrange.
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
 
 #pragma warning(push)
 #pragma warning(disable: 4996)  // deprecation inside httplib
@@ -127,26 +130,13 @@ namespace DBModels
         impl_->database = toUtf8(config.database);
         currentDb_      = config.database;
 
-        // Build httplib client — plain or TLS depending on sslEnabled.
-        // httplib::Client auto-detects http:// vs https:// from the
-        // scheme prefix, but we construct explicitly for clarity.
-        if (config.sslEnabled && config.sslMode != SSLMode::Disabled)
-        {
-            // SSLClient is the TLS variant; same API as Client.
-            impl_->client = std::make_unique<httplib::SSLClient>(
-                impl_->host, impl_->port);
-            // Skip cert verification for VerifyIdentity=false modes
-            if (config.sslMode == SSLMode::Preferred ||
-                config.sslMode == SSLMode::Required)
-            {
-                impl_->client->enable_server_certificate_verification(false);
-            }
-        }
-        else
-        {
-            impl_->client = std::make_unique<httplib::Client>(
-                impl_->host, impl_->port);
-        }
+        // Plain HTTP only. Vendored cpp-httplib is built without
+        // CPPHTTPLIB_OPENSSL_SUPPORT, so httplib::SSLClient is not
+        // available. Users who need TLS should front ClickHouse with
+        // an nginx/Caddy terminator and point us at the plaintext
+        // backend — matches how most CH deployments look anyway.
+        impl_->client = std::make_unique<httplib::Client>(
+            impl_->host, impl_->port);
 
         impl_->client->set_connection_timeout(10);
         impl_->client->set_read_timeout(30);
@@ -347,7 +337,7 @@ namespace DBModels
         // schema == database in ClickHouse (see listSchemas() note)
         std::string db = schema.empty() ? impl_->database : toUtf8(schema);
 
-        std::string sql = "SELECT * FROM " + "`" + db + "`" + "." + quoteIdentifier(table);
+        std::string sql = std::string("SELECT * FROM `") + db + "`." + quoteIdentifier(table);
         if (!orderBy.empty())
             sql += " ORDER BY " + quoteIdentifier(orderBy) + (ascending ? " ASC" : " DESC");
         sql += " LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
