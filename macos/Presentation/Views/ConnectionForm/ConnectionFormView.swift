@@ -20,6 +20,10 @@ struct ConnectionFormView: View {
     @State private var password: String = ""
     @State private var sqliteFilePath: String = ""
     @State private var connectionString: String = ""
+    /// MongoDB URI options captured by Parse (`authSource`, `authMechanism`, …).
+    /// Kept on the form so they survive Parse → Test/Save without relying on the
+    /// raw URI still being in the `connectionString` field.
+    @State private var parsedMongoOptions: [String: String] = [:]
     @State private var connStringError: String?
 
     // Tag
@@ -389,6 +393,10 @@ struct ConnectionFormView: View {
             sshAuthMethod = ssh.authMethod
             sshKeyPath = ssh.keyPath ?? ""
         }
+
+        if databaseType == .mongodb {
+            parsedMongoOptions = config.mongoOptions ?? [:]
+        }
     }
 
     // MARK: - Validation
@@ -429,6 +437,10 @@ struct ConnectionFormView: View {
             return host
         }()
 
+        let mongoOptions: [String: String]? = (databaseType == .mongodb && !parsedMongoOptions.isEmpty)
+            ? parsedMongoOptions
+            : nil
+
         return ConnectionConfig(
             id: existingConfig?.id ?? UUID(),
             name: name.isEmpty ? (isFileDB ? "SQLite" : host) : name,
@@ -444,7 +456,8 @@ struct ConnectionFormView: View {
             sslCertPath: sslCertPath.isEmpty ? nil : sslCertPath,
             sslCACertPath: sslCACertPath.isEmpty ? nil : sslCACertPath,
             filePath: databaseType == .sqlite ? sqliteFilePath : nil,
-            sshConfig: sshConfig
+            sshConfig: sshConfig,
+            mongoOptions: mongoOptions
         )
     }
 
@@ -480,20 +493,26 @@ struct ConnectionFormView: View {
         let prefixLength = isSrv ? "mongodb+srv://".count : "mongodb://".count
         var rest = String(trimmed.dropFirst(prefixLength))
 
-        // Strip query string and parse for tls/ssl flag
+        // Preserve every non-tls query param (authSource, authMechanism,
+        // replicaSet, …) so they survive Parse into the form state.
         var hasTLS = isSrv  // SRV implies TLS by default
+        var extractedOptions: [String: String] = [:]
         if let qIdx = rest.firstIndex(of: "?") {
             let query = String(rest[rest.index(after: qIdx)...])
             rest = String(rest[..<qIdx])
             for param in query.split(separator: "&") {
                 let parts = param.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    let key = String(parts[0]).lowercased()
-                    let value = String(parts[1]).lowercased()
-                    if (key == "tls" || key == "ssl") && (value == "true" || value == "1") {
-                        hasTLS = true
-                    }
+                guard parts.count == 2 else { continue }
+                let rawKey = String(parts[0])
+                let rawValue = String(parts[1])
+                let keyLower = rawKey.lowercased()
+                let valueLower = rawValue.lowercased()
+                if keyLower == "tls" || keyLower == "ssl" {
+                    if valueLower == "true" || valueLower == "1" { hasTLS = true }
+                    continue
                 }
+                let decodedValue = rawValue.removingPercentEncoding ?? rawValue
+                extractedOptions[rawKey] = decodedValue
             }
         }
 
@@ -545,6 +564,7 @@ struct ConnectionFormView: View {
         if name.isEmpty {
             name = hostName
         }
+        parsedMongoOptions = extractedOptions
     }
 
     private func pickSQLiteFile() {

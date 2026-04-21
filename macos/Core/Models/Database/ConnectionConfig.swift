@@ -31,6 +31,11 @@ struct ConnectionConfig: Codable, Sendable, Hashable, Identifiable {
     // MCP Access
     var mcpMode: MCPConnectionMode
 
+    /// MongoDB-specific URI options preserved from the user's connection string
+    /// (e.g. `authSource`, `authMechanism`, `replicaSet`, `readPreference`).
+    /// `tls`/`ssl` are handled via `sslEnabled` and are never stored here.
+    var mongoOptions: [String: String]?
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -47,7 +52,8 @@ struct ConnectionConfig: Codable, Sendable, Hashable, Identifiable {
         sslCACertPath: String? = nil,
         filePath: String? = nil,
         sshConfig: SSHTunnelConfig? = nil,
-        mcpMode: MCPConnectionMode = .locked
+        mcpMode: MCPConnectionMode = .locked,
+        mongoOptions: [String: String]? = nil
     ) {
         self.id = id
         self.name = name
@@ -65,6 +71,7 @@ struct ConnectionConfig: Codable, Sendable, Hashable, Identifiable {
         self.filePath = filePath
         self.sshConfig = sshConfig
         self.mcpMode = mcpMode
+        self.mongoOptions = mongoOptions
     }
 
     var displayHost: String {
