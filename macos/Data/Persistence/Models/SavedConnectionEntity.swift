@@ -29,6 +29,9 @@ final class SavedConnectionEntity {
     var createdAt: Date
     var filePath: String?
     var mcpMode: String?
+    /// MongoDB URI options serialized as JSON (`authSource`, `authMechanism`, etc.)
+    /// Kept as a string so SwiftData lightweight migration is trivial.
+    var mongoOptionsJSON: String?
 
     init(
         id: UUID = UUID(),
@@ -51,7 +54,8 @@ final class SavedConnectionEntity {
         lastConnectedAt: Date? = nil,
         createdAt: Date = Date(),
         filePath: String? = nil,
-        mcpMode: String? = nil
+        mcpMode: String? = nil,
+        mongoOptionsJSON: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -74,7 +78,10 @@ final class SavedConnectionEntity {
         self.createdAt = createdAt
         self.filePath = filePath
         self.mcpMode = mcpMode
+        self.mongoOptionsJSON = mongoOptionsJSON
     }
+
+    private static let mongoOptionsDecoder = JSONDecoder()
 
     func toConfig() -> ConnectionConfig {
         var sshConfig: SSHTunnelConfig?
@@ -86,6 +93,14 @@ final class SavedConnectionEntity {
                 authMethod: SSHAuthMethod(rawValue: sshAuthMethod ?? "password") ?? .password,
                 keyPath: sshKeyPath
             )
+        }
+
+        var mongoOptions: [String: String]?
+        if let json = mongoOptionsJSON, !json.isEmpty,
+           let data = json.data(using: .utf8),
+           let decoded = try? Self.mongoOptionsDecoder.decode([String: String].self, from: data),
+           !decoded.isEmpty {
+            mongoOptions = decoded
         }
 
         return ConnectionConfig(
@@ -101,7 +116,8 @@ final class SavedConnectionEntity {
             group: group,
             filePath: filePath,
             sshConfig: sshConfig,
-            mcpMode: mcpMode.flatMap { MCPConnectionMode(rawValue: $0) } ?? .locked
+            mcpMode: mcpMode.flatMap { MCPConnectionMode(rawValue: $0) } ?? .locked,
+            mongoOptions: mongoOptions
         )
     }
 }

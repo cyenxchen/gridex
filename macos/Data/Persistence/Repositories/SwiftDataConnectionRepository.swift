@@ -64,7 +64,8 @@ final class SwiftDataConnectionRepository: ConnectionRepository, @unchecked Send
             colorTag: config.colorTag?.rawValue,
             group: config.group,
             filePath: config.filePath,
-            mcpMode: config.mcpMode.rawValue
+            mcpMode: config.mcpMode.rawValue,
+            mongoOptionsJSON: Self.encodeMongoOptions(config.mongoOptions)
         )
         context.insert(entity)
         try context.save()
@@ -97,8 +98,21 @@ final class SwiftDataConnectionRepository: ConnectionRepository, @unchecked Send
         entity.sshAuthMethod = config.sshConfig?.authMethod.rawValue
         entity.sshKeyPath = config.sshConfig?.keyPath
         entity.mcpMode = config.mcpMode.rawValue
+        entity.mongoOptionsJSON = Self.encodeMongoOptions(config.mongoOptions)
 
         try context.save()
+    }
+
+    private static let mongoOptionsEncoder = JSONEncoder()
+
+    /// Encode MongoDB options as a JSON string for SwiftData storage. Returns nil
+    /// when the dictionary is absent or empty so the column stays unused for non-Mongo rows.
+    private static func encodeMongoOptions(_ options: [String: String]?) -> String? {
+        guard let options, !options.isEmpty,
+              let data = try? mongoOptionsEncoder.encode(options),
+              let str = String(data: data, encoding: .utf8)
+        else { return nil }
+        return str
     }
 
     @MainActor
