@@ -63,11 +63,24 @@ final class MongoDBAdapter: DatabaseAdapter, @unchecked Sendable {
         }
         uri += "\(hostField):\(port)/\(dbName)"
 
-        // Most MongoDB deployments store users in the `admin` database. Without
-        // an explicit authSource, MongoKitten authenticates against the URI's
-        // database and the server returns a generic auth failure.
+        // `tls`/`ssl` are owned by `config.sslEnabled` — skip them if they slipped
+        // into `mongoOptions`. Everything else (authSource, authMechanism,
+        // replicaSet, …) is forwarded to MongoKitten as-is.
         var params: [String] = []
-        if hasCredentials {
+        var hasExplicitAuthSource = false
+        let sortedOptions = (config.mongoOptions ?? [:]).sorted { $0.key < $1.key }
+        for (key, value) in sortedOptions {
+            let keyLower = key.lowercased()
+            if keyLower == "tls" || keyLower == "ssl" { continue }
+            if keyLower == "authsource" { hasExplicitAuthSource = true }
+            let encoded = value.addingPercentEncoding(withAllowedCharacters: Self.mongoQueryValueAllowed) ?? value
+            params.append("\(key)=\(encoded)")
+        }
+
+        // Most MongoDB deployments store users in the `admin` database, and
+        // authenticating against the URI's `/db` segment returns a generic failure.
+        // Apply the `admin` default only when the user didn't provide one.
+        if hasCredentials && !hasExplicitAuthSource {
             params.append("authSource=admin")
         }
         if config.sslEnabled {
@@ -78,6 +91,14 @@ final class MongoDBAdapter: DatabaseAdapter, @unchecked Sendable {
         }
         return uri
     }
+
+    /// `.urlQueryAllowed` leaves `&`, `=`, `+` unescaped — fine inside a URL's
+    /// query component, wrong inside a single query value. Strip those three.
+    private static let mongoQueryValueAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&=+")
+        return set
+    }()
 
     /// Replace the /database segment of a mongodb URI with a new database name.
     /// Preserves user:pass@host[:port] and any ?query string after the database.
