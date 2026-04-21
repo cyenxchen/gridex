@@ -333,16 +333,29 @@
                                       Padding="10,4" />
                     </StackPanel>
 
-                    <!-- + Row Button -->
-                    <Button x:Name="AddRowBtn" Grid.Column="1" Margin="8,0,0,0"
-                            Padding="6,4"
-                            Background="Transparent" BorderThickness="0"
-                            ToolTipService.ToolTip="Add Row">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE710;" FontSize="10" />
-                            <TextBlock Text="Row" FontSize="11" />
-                        </StackPanel>
-                    </Button>
+                    <!-- + Row / Duplicate Row Buttons -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                Spacing="2" Margin="8,0,0,0">
+                        <Button x:Name="AddRowBtn"
+                                Padding="6,4"
+                                Background="Transparent" BorderThickness="0"
+                                ToolTipService.ToolTip="Add Row">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE710;" FontSize="10" />
+                                <TextBlock Text="Row" FontSize="11" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DuplicateRowBtn"
+                                Padding="6,4"
+                                Background="Transparent" BorderThickness="0"
+                                IsEnabled="False"
+                                ToolTipService.ToolTip="Duplicate selected row (pending — edit before commit)">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="10" />
+                                <TextBlock Text="Duplicate" FontSize="11" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Pagination -->
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4"

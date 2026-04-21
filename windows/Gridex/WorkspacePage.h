@@ -116,6 +116,7 @@ namespace winrt::Gridex::implementation
         // ── CRUD Operations ─────────────────────────
         void DeleteSelectedRow();
         void AddNewRow();
+        void DuplicateSelectedRow();
         void CommitChanges();
         void DiscardChanges();
         DBModels::TableRow ExtractPrimaryKey(int rowIndex);

@@ -168,12 +168,18 @@ namespace winrt::Gridex::implementation
         // DataGrid callbacks
         DataGrid().as<DataGridView>()->OnRowSelected = [this](int rowIndex)
         {
-            if (rowIndex >= 0 && rowIndex < static_cast<int>(state_.currentData.rows.size()))
+            const bool valid = rowIndex >= 0
+                && rowIndex < static_cast<int>(state_.currentData.rows.size());
+            if (valid)
             {
                 Details().as<DetailsPanel>()->ShowRow(
                     state_.currentData.columnNames,
                     state_.currentData.rows[rowIndex]);
             }
+            // Duplicate only makes sense when a row is selected; toggling
+            // the button here keeps the enable state in sync with grid
+            // selection without a separate subscription.
+            DuplicateRowBtn().IsEnabled(valid);
         };
 
         // Delete key on grid → same as Delete toolbar button (mark row
@@ -1042,6 +1048,9 @@ namespace winrt::Gridex::implementation
 
         AddRowBtn().Click([this](winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
         { AddNewRow(); });
+
+        DuplicateRowBtn().Click([this](winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
+        { DuplicateSelectedRow(); });
 
         PrevPageBtn().Click([this](winrt::Windows::Foundation::IInspectable const&, mux::RoutedEventArgs const&)
         { PrevPage(); });
@@ -2087,6 +2096,52 @@ namespace winrt::Gridex::implementation
         state_.currentData.rows.push_back(displayRow);
         int newRowIndex = static_cast<int>(state_.currentData.rows.size()) - 1;
         changeTracker_.trackInsert(newRow, newRowIndex); // INSERT only has user-editable columns
+        DataGrid().as<DataGridView>()->SetData(state_.currentData);
+        UpdatePendingUI();
+    }
+
+    // Clone the currently-selected grid row as a pending INSERT so the
+    // user can tweak a couple fields (e.g. unique name) before commit.
+    // Mirrors AddNewRow for skipped columns — IDENTITY, SQL-expression
+    // PK defaults, and expression defaults like now()/nextval() stay
+    // server-generated so the copy doesn't collide with the source.
+    void WorkspacePage::DuplicateSelectedRow()
+    {
+        if (state_.currentColumns.empty()) return;
+        auto* sel = DataGrid().as<DataGridView>()->GetSelectedRow();
+        if (!sel) return;
+
+        DBModels::TableRow newRow;
+        for (auto& col : state_.currentColumns)
+        {
+            if (col.comment == L"IDENTITY") continue;
+            if (col.isPrimaryKey && IsSqlExpression(col.defaultValue)) continue;
+            if (IsSqlExpression(col.defaultValue)) continue;
+
+            auto it = sel->find(col.name);
+            if (it != sel->end())
+                newRow[col.name] = it->second; // copy source value as-is (incl. NULL sentinel)
+            else if (!col.defaultValue.empty() && col.defaultValue != L"NULL")
+                newRow[col.name] = col.defaultValue;
+            else if (col.nullable)
+                newRow[col.name] = L"NULL";
+            else
+                newRow[col.name] = L"";
+        }
+
+        // Display row carries the auto-gen placeholders (e.g.
+        // "gen_random_uuid()") for skipped columns so the new grid row
+        // visually matches a fresh insert.
+        DBModels::TableRow displayRow = newRow;
+        for (auto& col : state_.currentColumns)
+        {
+            if (displayRow.find(col.name) == displayRow.end())
+                displayRow[col.name] = col.defaultValue;
+        }
+
+        state_.currentData.rows.push_back(displayRow);
+        int newRowIndex = static_cast<int>(state_.currentData.rows.size()) - 1;
+        changeTracker_.trackInsert(newRow, newRowIndex);
         DataGrid().as<DataGridView>()->SetData(state_.currentData);
         UpdatePendingUI();
     }
