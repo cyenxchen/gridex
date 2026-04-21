@@ -4391,6 +4391,11 @@ g.er-selected > foreignObject > div.er-card{
         cfgDlg.CloseButtonText(L"Cancel");
         cfgDlg.DefaultButton(muxc::ContentDialogButton::Primary);
         cfgDlg.XamlRoot(this->XamlRoot());
+        // ContentDialog caps width via a theme resource; override so the
+        // column list + throttle NumberBoxes don't clip on the right.
+        cfgDlg.Resources().Insert(
+            winrt::box_value(winrt::hstring{L"ContentDialogMaxWidth"}),
+            winrt::box_value(820.0));
 
         // Intercept Primary: validate + stop close if invalid.
         auto cfgDeferralToken = cfgDlg.PrimaryButtonClick(
@@ -4408,9 +4413,9 @@ g.er-selected > foreignObject > div.er-card{
         auto cfgOpt = configImpl->BuildConfig();
         if (!cfgOpt) co_return;
 
-        // Start service.
-        ::Gridex::EE::MockData::EEMockDataGeneratorService service;
-        auto state = service.start(adapter.get(), *cfgOpt);
+        // Start service (static) — schedules UI-thread DispatcherQueueTimer.
+        auto state = ::Gridex::EE::MockData::EEMockDataGeneratorService::start(
+            adapter.get(), *cfgOpt);
 
         // Show progress dialog.
         auto progCtrl = winrt::make<
