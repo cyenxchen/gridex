@@ -222,6 +222,22 @@ namespace winrt::Gridex::implementation
             : mux::Visibility::Collapsed);
     }
 
+    // Twin of the monitor click — forwards to the separate callback so
+    // the host can gate visibility + routing per DB type independently.
+    void SidebarPanel::QueryBuilderButton_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        mux::RoutedEventArgs const&)
+    {
+        if (OnOpenQueryBuilder) OnOpenQueryBuilder();
+    }
+
+    void SidebarPanel::SetQueryBuilderButtonVisible(bool visible)
+    {
+        QueryBuilderButton().Visibility(visible
+            ? mux::Visibility::Visible
+            : mux::Visibility::Collapsed);
+    }
+
     bool SidebarPanel::MatchesSearch(const DBModels::SidebarItem& item) const
     {
         if (searchQuery_.empty()) return true;
@@ -618,7 +634,7 @@ namespace winrt::Gridex::implementation
             item.type == DBModels::SidebarItemType::Function)
         {
             if (OnItemSelected)
-                OnItemSelected(item.title, item.schema, item.type);
+                OnItemSelected(item.title, item.schema);
         }
     }
 }

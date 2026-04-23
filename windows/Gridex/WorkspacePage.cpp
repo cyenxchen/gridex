@@ -25,6 +25,7 @@
 #include "mock-data-generator/EEMockDataHeuristics.h"
 #include "mock-data-generator/EEMockDataGeneratorService.h"
 #include "connection-monitor/EEConnectionMonitorPage.h"
+#include "visual-query-builder/EEVQBPage.h"
 #endif
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Input.h>
@@ -877,6 +878,21 @@ namespace winrt::Gridex::implementation
             }
             sb->SetMonitorButtonVisible(isPg);
         }
+
+        // EE: sidebar header 2nd button → Visual Query Builder. PG + MySQL.
+        {
+            auto dbType = state_.connection.databaseType;
+            bool isSql =
+                dbType == DBModels::DatabaseType::PostgreSQL ||
+                dbType == DBModels::DatabaseType::MySQL;
+            auto sb = Sidebar().as<SidebarPanel>();
+            if (isSql) {
+                sb->OnOpenQueryBuilder = [this]() { OpenVisualQueryBuilder(); };
+            } else {
+                sb->OnOpenQueryBuilder = nullptr;
+            }
+            sb->SetQueryBuilderButtonVisible(isSql);
+        }
 #endif
 
         // Sidebar ER diagram — right-click Database/Schema group → Show ER Diagram
@@ -1322,18 +1338,6 @@ namespace winrt::Gridex::implementation
                 state_.statusSchema = config.database;
             }
         }
-        // ClickHouse: no schema concept, the connected database is the
-        // "schema". Without this branch currentSchema_ keeps the PG
-        // default "public" and listTables / fetchRows look for non-
-        // existent public.<table>.
-        else if (config.databaseType == DBModels::DatabaseType::ClickHouse)
-        {
-            if (!config.database.empty())
-            {
-                currentSchema_ = config.database;
-                state_.statusSchema = config.database;
-            }
-        }
 
         UpdateBreadcrumb();
 
@@ -1616,14 +1620,9 @@ namespace winrt::Gridex::implementation
             }
 
             Sidebar().as<SidebarPanel>()->SetItems(state_.sidebarItems);
-            Sidebar().as<SidebarPanel>()->OnItemSelected =
-                [this](const std::wstring& name, const std::wstring& schema,
-                       DBModels::SidebarItemType type)
+            Sidebar().as<SidebarPanel>()->OnItemSelected = [this](const std::wstring& name, const std::wstring& schema)
             {
-                if (type == DBModels::SidebarItemType::Function)
-                    ShowFunctionSource(name, schema);
-                else
-                    OnTableSelected(name, schema);
+                OnTableSelected(name, schema);
             };
 
             // Feed table/function names to query editor autocomplete
@@ -2012,31 +2011,6 @@ namespace winrt::Gridex::implementation
         QueryEditor().as<QueryEditorView>()->SetSql(L"");
 
         SwitchContentView();
-    }
-
-    void WorkspacePage::ShowFunctionSource(
-        const std::wstring& name, const std::wstring& schema)
-    {
-        // Pull source via the active adapter. Each dialect maps this
-        // to its own metadata query (pg_proc / system.functions /
-        // mysql.proc / sys.sql_modules / ...).
-        std::wstring source;
-        try
-        {
-            auto adapter = connMgr_.getActiveAdapter();
-            if (adapter) source = adapter->getFunctionSource(name, schema);
-        }
-        catch (const std::exception&) { /* fall through — show stub */ }
-
-        if (source.empty())
-            source = L"-- " + name + L"\n-- (no source available for this function)";
-
-        // Reuse the query-tab flow: open a fresh tab, drop the DDL
-        // into the shared QueryEditorView. Matches how DataGrip /
-        // Navicat surface UDF bodies — user can tweak + re-run
-        // CREATE FUNCTION in place.
-        OpenNewQueryTab();
-        QueryEditor().as<QueryEditorView>()->SetSql(source);
     }
 
     // ── CRUD Operations ─────────────────────────────────
@@ -4414,14 +4388,9 @@ g.er-selected > foreignObject > div.er-card{
 
         state_.sidebarItems = { functionsGroup, tablesGroup, viewsGroup };
         Sidebar().as<SidebarPanel>()->SetItems(state_.sidebarItems);
-        Sidebar().as<SidebarPanel>()->OnItemSelected =
-            [this](const std::wstring& name, const std::wstring& schema,
-                   DBModels::SidebarItemType type)
+        Sidebar().as<SidebarPanel>()->OnItemSelected = [this](const std::wstring& name, const std::wstring& schema)
         {
-            if (type == DBModels::SidebarItemType::Function)
-                ShowFunctionSource(name, schema);
-            else
-                OnTableSelected(name, schema);
+            OnTableSelected(name, schema);
         };
     }
 
@@ -4518,6 +4487,68 @@ g.er-selected > foreignObject > div.er-card{
             DetailsColumn().Width(mux::GridLengthHelper::FromPixels(
                 snapshot->detailsWidth > 0 ? snapshot->detailsWidth : 260));
             TabBar().Visibility(snapshot->tabBarVis);
+        };
+
+        contentArea.Children().Append(projected);
+    }
+
+    // Visual Query Builder overlay — same snapshot-restore choreography
+    // as the connection monitor. "Open in SQL editor" callback from JS
+    // spawns a fresh query tab pre-filled with the generated SQL.
+    void WorkspacePage::OpenVisualQueryBuilder()
+    {
+        if (!connMgr_.isConnected()) return;
+        auto adapter = connMgr_.getActiveAdapter();
+        if (!adapter) return;
+
+        auto projected = winrt::make<
+            winrt::Gridex::implementation::EEVQBPage>();
+        auto impl = winrt::get_self<
+            winrt::Gridex::implementation::EEVQBPage>(projected);
+        impl->SetAdapter(adapter.get(), currentSchema_, state_.connection.databaseType);
+
+        auto contentArea = ContentArea();
+        struct LayoutSnapshot {
+            std::vector<std::pair<mux::UIElement, mux::Visibility>> children;
+            double sidebarWidth = 0; double detailsWidth = 0;
+            mux::Visibility tabBarVis = mux::Visibility::Visible;
+        };
+        auto snapshot = std::make_shared<LayoutSnapshot>();
+        for (auto const& child : contentArea.Children()) {
+            if (auto fe = child.try_as<mux::UIElement>())
+                snapshot->children.push_back({ fe, fe.Visibility() });
+        }
+        snapshot->sidebarWidth = SidebarColumn().Width().Value;
+        snapshot->detailsWidth = DetailsColumn().Width().Value;
+        snapshot->tabBarVis = TabBar().Visibility();
+
+        for (auto& [child, _] : snapshot->children)
+            child.Visibility(mux::Visibility::Collapsed);
+        DetailsColumn().Width(mux::GridLengthHelper::FromPixels(0));
+        TabBar().Visibility(mux::Visibility::Collapsed);
+
+        auto restore = [this, snapshot, projected]() {
+            auto ca = ContentArea();
+            uint32_t idx = 0;
+            if (ca.Children().IndexOf(projected, idx))
+                ca.Children().RemoveAt(idx);
+            for (auto& [child, vis] : snapshot->children)
+                child.Visibility(vis);
+            DetailsColumn().Width(mux::GridLengthHelper::FromPixels(
+                snapshot->detailsWidth > 0 ? snapshot->detailsWidth : 260));
+            TabBar().Visibility(snapshot->tabBarVis);
+        };
+
+        impl->OnCloseRequested = restore;
+
+        impl->OnOpenInEditorRequested = [this, restore](std::wstring sql) {
+            // Drop the overlay + open a fresh SQL tab pre-filled with
+            // the generated query. SetSql fires after the tab switch so
+            // the QueryEditorView is bound to the new tab id.
+            restore();
+            OpenNewQueryTab();
+            try { QueryEditor().as<QueryEditorView>()->SetSql(sql); }
+            catch (...) {}
         };
 
         contentArea.Children().Append(projected);

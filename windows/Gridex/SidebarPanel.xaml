@@ -43,17 +43,28 @@
                           ToolTipService.ToolTip="Query History">
                 <FontIcon Glyph="&#xE81C;" FontSize="13" />
             </ToggleButton>
-            <!-- Right-aligned action button (EE: opens Realtime Connection
-                 Monitor). Hidden when no callback wired so OSS build has
-                 no dead button. -->
-            <Button x:Name="MonitorButton" Grid.Column="4"
-                    Padding="6,4"
-                    Background="Transparent" BorderThickness="0"
-                    Visibility="Collapsed"
-                    Click="MonitorButton_Click"
-                    ToolTipService.ToolTip="Realtime Connection Monitor">
-                <FontIcon Glyph="&#xE950;" FontSize="13" />
-            </Button>
+            <!-- Right-aligned action buttons (EE hooks). Both Collapsed
+                 by default so OSS build is unchanged; EE WorkspacePage
+                 wires the callbacks + calls Set*ButtonVisible(true) on
+                 supported DB types. -->
+            <StackPanel Grid.Column="4" Orientation="Horizontal">
+                <Button x:Name="QueryBuilderButton"
+                        Padding="6,4"
+                        Background="Transparent" BorderThickness="0"
+                        Visibility="Collapsed"
+                        Click="QueryBuilderButton_Click"
+                        ToolTipService.ToolTip="Visual Query Builder">
+                    <FontIcon Glyph="&#xE90F;" FontSize="13" />
+                </Button>
+                <Button x:Name="MonitorButton"
+                        Padding="6,4"
+                        Background="Transparent" BorderThickness="0"
+                        Visibility="Collapsed"
+                        Click="MonitorButton_Click"
+                        ToolTipService.ToolTip="Realtime Connection Monitor">
+                    <FontIcon Glyph="&#xE950;" FontSize="13" />
+                </Button>
+            </StackPanel>
         </Grid>
 
         <!-- Search box -->
