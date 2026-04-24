@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Gridex
+GenericName=Database IDE
+Comment=AI-Native Database IDE
+Exec=gridex
+Icon=gridex
+Terminal=false
+Categories=Development;Database;
+Keywords=database;sql;postgres;mysql;sqlite;mongodb;redis;
+StartupWMClass=gridex

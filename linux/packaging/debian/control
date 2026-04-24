@@ -1,0 +1,36 @@
+Source: gridex
+Section: devel
+Priority: optional
+Maintainer: Gridex Team <danghuynh.dev@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.20),
+               ninja-build,
+               qt6-base-dev,
+               qt6-base-dev-tools,
+               libgl1-mesa-dev,
+               libpq-dev,
+               libmariadb-dev,
+               libssh-dev,
+               libsecret-1-dev,
+               libhiredis-dev,
+               freetds-dev,
+               unixodbc-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/vurakit/vura
+Rules-Requires-Root: no
+
+Package: gridex
+Architecture: amd64
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         qt6-base (>= 6.4) | libqt6core6 (>= 6.4),
+         libpq5,
+         libmariadb3,
+         libssh-4,
+         libsecret-1-0,
+         libhiredis0.14
+Description: AI-Native Database IDE
+ Gridex is an AI-native database IDE for Linux that provides a powerful
+ GUI for managing multiple database backends including PostgreSQL, MySQL,
+ SQLite, MongoDB, Redis, and SQL Server, combined with AI chat and an
+ MCP server for external AI agent integration.
