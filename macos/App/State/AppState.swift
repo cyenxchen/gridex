@@ -41,7 +41,6 @@ final class AppState: ObservableObject {
     @Published var aiPanelVisible = false
     @Published var showDBTypePicker = false
     @Published var showConnectionForm = false
-    @Published var showSettings = false
     @Published var showDatabaseSwitcher = false
     @Published var showNewTableSheet = false
     @Published var selectedDBType: DatabaseType?
