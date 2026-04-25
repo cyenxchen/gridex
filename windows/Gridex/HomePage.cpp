@@ -506,60 +506,76 @@ namespace winrt::Gridex::implementation
     {
         if (!e.ClickedItem()) return;
 
-        // ClickedItem returns the ConnectionCard UserControl
-        // Read Tag to find connection id
+        // Read the connection id from the ConnectionCard's Tag.
         winrt::hstring connId;
         if (auto fe = e.ClickedItem().try_as<winrt::Microsoft::UI::Xaml::FrameworkElement>())
         {
             if (auto tag = fe.Tag())
                 connId = winrt::unbox_value<winrt::hstring>(tag);
         }
-
         if (connId.empty()) return;
 
-        // Find the connection config
         DBModels::ConnectionConfig selectedConn;
         bool found = false;
         for (const auto& conn : allConnections_)
         {
             if (conn.id == std::wstring(connId))
-            {
-                selectedConn = conn;
-                found = true;
-                break;
-            }
+            { selectedConn = conn; found = true; break; }
         }
         if (!found) return;
 
-        // Test connection BEFORE navigating to workspace. If the test
-        // fails, show error on HomePage so the user doesn't land on a
-        // blank workspace with an error dialog they have to dismiss.
         auto frame = this->Frame();
         if (!frame) return;
 
-        try
-        {
-            DBModels::ConnectionManager mgr;
-            std::wstring err;
-            if (!mgr.testConnectionWithError(selectedConn, selectedConn.password, err))
-            {
-                std::wstring msg = L"Could not connect to " + selectedConn.name + L".";
-                if (!err.empty()) msg += L"\n\n" + err;
-                else msg += L" Check host, port, credentials, and ensure the server is running.";
-                muxc::ContentDialog errDlg;
-                errDlg.Title(winrt::box_value(winrt::hstring(L"Connection Failed")));
-                errDlg.Content(winrt::box_value(winrt::hstring(msg)));
-                errDlg.CloseButtonText(L"OK");
-                errDlg.XamlRoot(this->XamlRoot());
-                errDlg.ShowAsync();
-                return;
-            }
-        }
-        catch (...) {}
+        // Show the loading overlay so the user gets visual feedback
+        // during the connect probe (otherwise the UI looks frozen,
+        // especially for SSH tunnels / cold remote DBs).
+        ConnectingText().Text(L"Connecting to " + selectedConn.name + L"...");
+        ConnectingOverlay().Visibility(mux::Visibility::Visible);
 
-        auto workspace = winrt::make<WorkspacePage>();
-        workspace.as<WorkspacePage>()->SetConnection(selectedConn, selectedConn.password);
-        frame.Content(workspace);
+        // Capture a strong ref + dispatcher so the worker thread can
+        // bounce back to the UI thread to flip visibility / navigate
+        // / show the error dialog. std::thread is detached — fire and
+        // forget; the strong ref keeps the page alive long enough.
+        auto self = get_strong();
+        auto dispatcher = this->DispatcherQueue();
+        auto config = selectedConn;
+        auto password = selectedConn.password;
+
+        std::thread([self, dispatcher, config, password, frame]() mutable
+        {
+            bool ok = false;
+            std::wstring err;
+            try
+            {
+                DBModels::ConnectionManager mgr;
+                ok = mgr.testConnectionWithError(config, password, err);
+            }
+            catch (...) { ok = false; }
+
+            dispatcher.TryEnqueue([self, ok, err, config, password, frame]() mutable
+            {
+                self->ConnectingOverlay().Visibility(mux::Visibility::Collapsed);
+
+                if (!ok)
+                {
+                    std::wstring msg = L"Could not connect to " + config.name + L".";
+                    if (!err.empty()) msg += L"\n\n" + err;
+                    else msg += L" Check host, port, credentials, and ensure the server is running.";
+                    muxc::ContentDialog errDlg;
+                    errDlg.Title(winrt::box_value(winrt::hstring(L"Connection Failed")));
+                    errDlg.Content(winrt::box_value(winrt::hstring(msg)));
+                    errDlg.CloseButtonText(L"OK");
+                    errDlg.XamlRoot(self->XamlRoot());
+                    errDlg.ShowAsync();
+                    return;
+                }
+
+                auto workspace = winrt::make<WorkspacePage>();
+                workspace.as<WorkspacePage>()->SetConnection(config, password);
+                frame.Content(workspace);
+            });
+        }).detach();
     }
 
     void HomePage::SearchBox_TextChanged(

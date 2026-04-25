@@ -198,5 +198,25 @@
                         Click="NewConnection_Click" />
             </StackPanel>
         </Grid>
+
+        <!-- Modal loading overlay shown while ConnectionItem_Click tests
+             the selected connection. Sits on top of every column and
+             intercepts clicks via IsHitTestVisible default true. -->
+        <Grid x:Name="ConnectingOverlay"
+              Grid.Column="0" Grid.ColumnSpan="3"
+              Background="#80000000"
+              Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Spacing="12" Padding="32"
+                        Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8">
+                <ProgressRing IsActive="True" Width="40" Height="40" />
+                <TextBlock x:Name="ConnectingText"
+                           Text="Connecting..."
+                           HorizontalAlignment="Center"
+                           FontSize="13" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>

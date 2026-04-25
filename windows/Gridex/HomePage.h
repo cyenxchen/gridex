@@ -30,6 +30,10 @@ namespace winrt::Gridex::implementation
         winrt::fire_and_forget ImportConnections_Click(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        // Spawns a worker thread for the connect probe so the UI
+        // thread stays responsive (loading overlay animates), then
+        // bounces back via DispatcherQueue::TryEnqueue to navigate
+        // or surface the error dialog.
         void ConnectionItem_Click(
             winrt::Windows::Foundation::IInspectable const& sender,
             winrt::Microsoft::UI::Xaml::Controls::ItemClickEventArgs const& e);
