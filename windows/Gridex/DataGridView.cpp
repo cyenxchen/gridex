@@ -5,7 +5,10 @@
 #include <winrt/Windows.UI.Core.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
+#include <functional>
+#include <memory>
 #include <algorithm>
 #include <cmath>
 #if __has_include("DataGridView.g.cpp")
@@ -615,15 +618,68 @@ namespace winrt::Gridex::implementation
         rows.Children().Clear();
 
         const int totalRows = static_cast<int>(data_.rows.size());
-        for (int i = 0; i < totalRows; i++)
+
+        // Chunked render to keep the UI thread responsive on large
+        // result sets. Building 3k+ row visuals in one synchronous
+        // pass froze the app for 5+ seconds — measurable in the
+        // wild on `SELECT * FROM big_table`. Tradeoff: the first
+        // chunk (kFirstChunk) is rendered synchronously so the user
+        // sees the top of the table immediately; remaining rows are
+        // posted back to the dispatcher queue in batches of kChunk
+        // so input + scroll get a chance to run between batches.
+        constexpr int kFirstChunk = 200;
+        constexpr int kChunk      = 200;
+
+        int firstEnd = (std::min)(totalRows, kFirstChunk);
+        for (int i = 0; i < firstEnd; ++i)
             rows.Children().Append(BuildRowElement(i));
 
         rows.Visibility(mux::Visibility::Visible);
 
         // Re-apply selection highlight (selectedRow_ may carry over from
         // a previous load if the host hasn't reset it).
-        if (selectedRow_ >= 0 && selectedRow_ < totalRows)
+        if (selectedRow_ >= 0 && selectedRow_ < firstEnd)
             HighlightRow(selectedRow_);
+
+        if (firstEnd >= totalRows) return;
+
+        // New generation token. If another SetData fires before this
+        // chain finishes, the captured `gen` will mismatch and the
+        // continuation drops out without appending stale rows.
+        const uint64_t gen = ++buildRowsGeneration_;
+        auto self = get_strong();
+        auto dq = winrt::Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
+        if (!dq)
+        {
+            // No dispatcher (unlikely on the UI thread, but be safe) —
+            // fall through to synchronous render of the remainder.
+            for (int i = firstEnd; i < totalRows; ++i)
+                rows.Children().Append(BuildRowElement(i));
+            return;
+        }
+
+        // shared_ptr<function> so the lambda can re-post itself
+        // without the dangling-reference traps of capturing a
+        // std::function by reference.
+        auto cursor = std::make_shared<int>(firstEnd);
+        auto step   = std::make_shared<std::function<void()>>();
+        *step = [self, dq, cursor, step, gen, totalRows]() mutable
+        {
+            if (self->buildRowsGeneration_ != gen) return;       // superseded
+            int start = *cursor;
+            int end   = (std::min)(totalRows, start + kChunk);
+            auto rows = self->DataRows();
+            for (int i = start; i < end; ++i)
+                rows.Children().Append(self->BuildRowElement(i));
+            // Re-apply selection if it lands in the chunk we just
+            // realized.
+            if (self->selectedRow_ >= start && self->selectedRow_ < end)
+                self->HighlightRow(self->selectedRow_);
+            *cursor = end;
+            if (end < totalRows)
+                dq.TryEnqueue([step]() { (*step)(); });
+        };
+        dq.TryEnqueue([step]() { (*step)(); });
     }
 
     // Build a single row's UI element. Layout: a horizontal StackPanel that

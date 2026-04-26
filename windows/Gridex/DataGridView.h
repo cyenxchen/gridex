@@ -130,6 +130,13 @@ namespace winrt::Gridex::implementation
         winrt::Microsoft::UI::Xaml::Style cellStyle_{ nullptr };
         winrt::Microsoft::UI::Xaml::Style rowNumStyle_{ nullptr };
 
+        // Bumped on every BuildRows kickoff. The chunked scheduler
+        // captures its value and bails out as soon as it sees a newer
+        // generation — so rapid SetData calls (table switch, refresh,
+        // re-query) don't keep appending stale rows from the previous
+        // load.
+        uint64_t buildRowsGeneration_ = 0;
+
         void EnsureCellStyles();
 
         void ComputeColumnWidths();
