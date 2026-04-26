@@ -121,6 +121,16 @@ namespace winrt::Gridex::implementation
             const std::wstring& sql,
             const std::wstring& error,
             DBModels::DatabaseType dbType);
+        // Scan SQL for reserved keywords appearing in unambiguous
+        // identifier positions (after FROM / JOIN / INTO / UPDATE /
+        // TABLE) and wrap them with the dialect's quote char so
+        // queries like `select id from order` execute without forcing
+        // the user to remember the quoting rules. Returns the rewritten
+        // SQL and sets `wasRewritten` if anything changed.
+        static std::wstring AutoQuoteReservedIdentifiers(
+            const std::wstring& sql,
+            DBModels::DatabaseType dbType,
+            bool& wasRewritten);
 
         // ── CRUD Operations ─────────────────────────
         void DeleteSelectedRow();

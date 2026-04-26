@@ -368,7 +368,16 @@ namespace winrt::Gridex::implementation
                 {
                     try
                     {
-                        auto result = adapter->execute(sql);
+                        // Pre-process: wrap reserved-keyword identifiers
+                        // (FROM order → FROM "order") so PG/MySQL stop
+                        // rejecting them. The rewrite is conservative —
+                        // only triggers after FROM/JOIN/INTO/UPDATE/TABLE.
+                        bool rewritten = false;
+                        std::wstring effective = AutoQuoteReservedIdentifiers(
+                            sql, state_.connection.databaseType, rewritten);
+
+                        auto result = adapter->execute(effective);
+                        if (rewritten) result.sql = effective; // log rewritten form
                         LogQuery(result);
                         return result;
                     }
@@ -2605,6 +2614,144 @@ namespace winrt::Gridex::implementation
     }
 
     // ── Query Log ───────────────────────────────────────
+
+    namespace {
+        // Words we'll wrap when they appear as identifiers. Same shared
+        // subset the hint helper uses — see ReservedKeywordHint comment.
+        const std::vector<std::wstring>& kAutoQuoteReserved()
+        {
+            static const std::vector<std::wstring> kw = {
+                L"order", L"user", L"group", L"table", L"column", L"index",
+                L"key", L"primary", L"references", L"limit", L"offset",
+                L"join", L"left", L"right", L"inner", L"outer", L"check",
+                L"unique", L"foreign", L"timestamp", L"date", L"time",
+                L"int", L"integer", L"text", L"value", L"values", L"asc",
+                L"desc", L"default", L"null",
+            };
+            return kw;
+        }
+
+        // Anchors after which the next token is *always* an identifier.
+        // SELECT/WHERE column lists are intentionally excluded — too
+        // many false positives without a real parser.
+        bool isIdentifierAnchor(const std::wstring& upper)
+        {
+            return upper == L"FROM" || upper == L"JOIN" ||
+                   upper == L"INTO" || upper == L"UPDATE" ||
+                   upper == L"TABLE";
+        }
+
+        bool isWordChar(wchar_t c)
+        {
+            return (c >= L'a' && c <= L'z') ||
+                   (c >= L'A' && c <= L'Z') ||
+                   (c >= L'0' && c <= L'9') || c == L'_';
+        }
+    }
+
+    std::wstring WorkspacePage::AutoQuoteReservedIdentifiers(
+        const std::wstring& sql,
+        DBModels::DatabaseType dbType,
+        bool& wasRewritten)
+    {
+        wasRewritten = false;
+        if (sql.empty()) return sql;
+
+        const wchar_t q = (dbType == DBModels::DatabaseType::MySQL ||
+                           dbType == DBModels::DatabaseType::ClickHouse)
+                          ? L'`' : L'"';
+
+        std::wstring out;
+        out.reserve(sql.size() + 16);
+
+        const auto& reserved = kAutoQuoteReserved();
+        std::wstring prevWordUpper;     // last identifier-shaped token
+        size_t i = 0;
+        const size_t n = sql.size();
+
+        while (i < n)
+        {
+            wchar_t c = sql[i];
+
+            // Pass through string literals untouched ('...', "...", `...`).
+            if (c == L'\'' || c == L'"' || c == L'`')
+            {
+                wchar_t open = c;
+                out += c; ++i;
+                while (i < n)
+                {
+                    wchar_t cc = sql[i];
+                    out += cc; ++i;
+                    if (cc == L'\\' && i < n) { out += sql[i++]; continue; }
+                    if (cc == open) break;
+                }
+                prevWordUpper.clear();
+                continue;
+            }
+
+            // Pass through line + block comments.
+            if (c == L'-' && i + 1 < n && sql[i + 1] == L'-')
+            {
+                while (i < n && sql[i] != L'\n') { out += sql[i++]; }
+                continue;
+            }
+            if (c == L'/' && i + 1 < n && sql[i + 1] == L'*')
+            {
+                out += sql[i++]; out += sql[i++];
+                while (i + 1 < n && !(sql[i] == L'*' && sql[i + 1] == L'/'))
+                    out += sql[i++];
+                if (i + 1 < n) { out += sql[i++]; out += sql[i++]; }
+                continue;
+            }
+
+            // Word token: collect [A-Za-z0-9_]+
+            if (isWordChar(c) && !(c >= L'0' && c <= L'9'))
+            {
+                size_t start = i;
+                while (i < n && isWordChar(sql[i])) ++i;
+                std::wstring tok = sql.substr(start, i - start);
+
+                // Lower / upper for matching only, output keeps original case.
+                std::wstring lower = tok;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                    [](wchar_t cc) { return std::towlower(cc); });
+                std::wstring upper = tok;
+                std::transform(upper.begin(), upper.end(), upper.begin(),
+                    [](wchar_t cc) { return std::towupper(cc); });
+
+                bool quoted = false;
+                if (isIdentifierAnchor(prevWordUpper))
+                {
+                    for (auto& kw : reserved)
+                    {
+                        if (kw == lower)
+                        {
+                            out += q; out += tok; out += q;
+                            wasRewritten = true;
+                            quoted = true;
+                            break;
+                        }
+                    }
+                }
+                if (!quoted) out += tok;
+                prevWordUpper = upper;
+                continue;
+            }
+
+            // Anything else: punctuation, whitespace, digits, etc.
+            // Whitespace / punctuation doesn't reset prevWordUpper —
+            // we still want `FROM   order` and `FROM\norder` to work.
+            // But hitting a comma / semicolon / paren means the
+            // anchor relationship is broken.
+            if (c == L',' || c == L';' || c == L'(' || c == L')')
+                prevWordUpper.clear();
+
+            out += c;
+            ++i;
+        }
+
+        return out;
+    }
 
     std::wstring WorkspacePage::ReservedKeywordHint(
         const std::wstring& sql,
