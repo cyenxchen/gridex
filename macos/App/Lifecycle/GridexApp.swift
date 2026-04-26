@@ -21,13 +21,6 @@ struct GridexApp: App {
         .defaultSize(width: 900, height: 500)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
-            CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    currentAppState?.showSettings = true
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
-
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     updater.checkForUpdates()

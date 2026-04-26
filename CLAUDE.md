@@ -63,3 +63,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+## Platform-specific guidance
+
+When touching macOS code, the following file is auto-imported. It catalogs reusable
+contracts, services, UI components, and the Do/Don't lessons from real incidents —
+read it before adding helpers or patterns of your own.
+
+@macos/AGENTS.md

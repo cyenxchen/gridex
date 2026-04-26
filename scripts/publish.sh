@@ -1,27 +1,33 @@
 #!/bin/bash
-# publish.sh — Generate Sparkle appcast and upload release artifacts to Cloudflare R2.
+# publish.sh — Generate Sparkle appcast, upload to Cloudflare R2, and cut a GitHub release.
 #
 # Usage:
-#   ./scripts/publish.sh                    # Publishes everything in dist/*.dmg
-#   DRY_RUN=1 ./scripts/publish.sh          # Generates appcast locally, skips upload
-#   SKIP_APPCAST=1 ./scripts/publish.sh     # Uploads existing artifacts, no appcast regen
+#   ./scripts/publish.sh                    # Upload current version's DMG + appcast, tag GH release
+#   UPLOAD_ALL=1 ./scripts/publish.sh       # Re-upload every DMG in dist/ (bucket resync)
+#   DRY_RUN=1 ./scripts/publish.sh          # Generate appcast locally, skip upload + release
+#   SKIP_APPCAST=1 ./scripts/publish.sh     # Upload existing artifacts, no appcast regen
+#   SKIP_GH_RELEASE=1 ./scripts/publish.sh  # Skip GitHub release creation
 #
 # Env:
 #   R2_BUCKET         Cloudflare R2 bucket name (default: gridex-downloads)
 #   R2_PREFIX         Path prefix in bucket (default: macos)
 #   FEED_BASE_URL     Public URL where the DMGs are served (default: https://cdn.gridex.app/macos)
-#   DRY_RUN           1 = generate appcast locally, skip R2 upload
+#   DRY_RUN           1 = generate appcast locally, skip R2 upload + GH release
 #   SKIP_APPCAST      1 = skip appcast regeneration (re-upload only)
+#   UPLOAD_ALL        1 = upload every dist/*.dmg, not just the current version
+#   SKIP_GH_RELEASE   1 = skip `gh release create` / asset upload
 #
 # Requirements:
 #   • generate_appcast from Sparkle (found automatically under .build/artifacts)
 #   • wrangler CLI (npm i -g wrangler) with `wrangler login` completed
 #   • EdDSA private key previously generated via `generate_keys` (stored in Keychain)
+#   • gh CLI (brew install gh) authenticated via `gh auth login` — for GitHub releases
 #
 # Flow:
 #   1. Find generate_appcast in SPM artifacts
 #   2. Run generate_appcast against dist/ → signs each DMG with EdDSA, emits appcast.xml
-#   3. Upload every .dmg + appcast.xml to R2 under $R2_BUCKET/$R2_PREFIX/
+#   3. Upload the current version's DMG (or everything if UPLOAD_ALL=1) + appcast.xml to R2
+#   4. Create / update GitHub release v$VERSION with the DMG(s) attached
 
 set -euo pipefail
 
@@ -34,13 +40,24 @@ R2_PREFIX="${R2_PREFIX:-macos}"
 FEED_BASE_URL="${FEED_BASE_URL:-https://cdn.gridex.app/macos}"
 DRY_RUN="${DRY_RUN:-0}"
 SKIP_APPCAST="${SKIP_APPCAST:-0}"
+UPLOAD_ALL="${UPLOAD_ALL:-0}"
+SKIP_GH_RELEASE="${SKIP_GH_RELEASE:-0}"
+
+# Current version drives the default "new DMG only" upload path.
+CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PROJECT_DIR/macos/Resources/Info.plist" 2>/dev/null || true)
+if [ -z "$CURRENT_VERSION" ]; then
+    echo "✗ Could not read CFBundleShortVersionString from Info.plist"
+    exit 1
+fi
 
 echo "═══════════════════════════════════════════"
 echo "  Publish to Cloudflare R2"
 echo "  Bucket:   $R2_BUCKET"
 echo "  Prefix:   $R2_PREFIX"
 echo "  Feed:     $FEED_BASE_URL"
+echo "  Version:  $CURRENT_VERSION"
 [ "$DRY_RUN" = "1" ] && echo "  Mode:     DRY RUN (no upload)"
+[ "$UPLOAD_ALL" = "1" ] && echo "  Mode:     UPLOAD ALL (re-syncing every DMG)"
 echo "═══════════════════════════════════════════"
 
 if [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR"/*.dmg 2>/dev/null)" ]; then
@@ -78,10 +95,29 @@ if ! command -v wrangler >/dev/null 2>&1; then
     exit 1
 fi
 
-# 3. Upload DMGs
+# 3. Collect DMGs to upload — by default just the current version; the appcast
+#    still references every historical build from $FEED_BASE_URL, but those
+#    DMGs were already uploaded in previous publish runs. Pass UPLOAD_ALL=1 to
+#    resync the full bucket (e.g. after a bucket wipe or prefix migration).
+if [ "$UPLOAD_ALL" = "1" ]; then
+    candidate_dmgs=( "$DIST_DIR"/*.dmg )
+else
+    candidate_dmgs=( "$DIST_DIR/Gridex-${CURRENT_VERSION}-"*.dmg )
+fi
+dmgs_to_upload=()
+for dmg in "${candidate_dmgs[@]}"; do
+    [ -f "$dmg" ] && dmgs_to_upload+=("$dmg")
+done
+if [ ${#dmgs_to_upload[@]} -eq 0 ]; then
+    echo "✗ No DMG found for version $CURRENT_VERSION in $DIST_DIR"
+    echo "  Expected: $DIST_DIR/Gridex-${CURRENT_VERSION}-*.dmg"
+    echo "  Run ./scripts/release.sh or ./scripts/release-all.sh first,"
+    echo "  or pass UPLOAD_ALL=1 to upload every existing DMG."
+    exit 1
+fi
+
 echo "→ Uploading DMGs to R2..."
-for dmg in "$DIST_DIR"/*.dmg; do
-    [ -f "$dmg" ] || continue
+for dmg in "${dmgs_to_upload[@]}"; do
     name=$(basename "$dmg")
     echo "  ↑ $name"
     wrangler r2 object put "$R2_BUCKET/$R2_PREFIX/$name" \
@@ -100,8 +136,35 @@ if [ -f "$DIST_DIR/appcast.xml" ]; then
         --remote
 fi
 
+# 5. GitHub release — always for the current version only (never historical
+#    rebuilds), so UPLOAD_ALL=1 doesn't accidentally cut a dozen releases.
+if [ "$SKIP_GH_RELEASE" != "1" ]; then
+    tag="v$CURRENT_VERSION"
+    release_dmgs=()
+    for dmg in "${dmgs_to_upload[@]}"; do
+        [[ "$(basename "$dmg")" == Gridex-"$CURRENT_VERSION"-*.dmg ]] && release_dmgs+=("$dmg")
+    done
+
+    echo ""
+    echo "→ GitHub release $tag..."
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "  ⚠ gh CLI not found — install with 'brew install gh' or set SKIP_GH_RELEASE=1"
+    elif [ ${#release_dmgs[@]} -eq 0 ]; then
+        echo "  ⚠ No DMG matched Gridex-$CURRENT_VERSION-*.dmg; skipping release"
+    elif gh release view "$tag" >/dev/null 2>&1; then
+        echo "  ↑ Attaching assets to existing $tag (--clobber overwrites same-named files)"
+        gh release upload "$tag" "${release_dmgs[@]}" --clobber
+    else
+        echo "  + Creating release $tag on current HEAD with auto-generated notes"
+        gh release create "$tag" "${release_dmgs[@]}" \
+            --title "$tag" \
+            --generate-notes
+    fi
+fi
+
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  ✓ Published to R2"
+echo "  ✓ Published"
 echo "  Appcast: $FEED_BASE_URL/appcast.xml"
+[ "$SKIP_GH_RELEASE" != "1" ] && echo "  Release: https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)/releases/tag/v$CURRENT_VERSION"
 echo "═══════════════════════════════════════════"

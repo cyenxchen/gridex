@@ -634,7 +634,7 @@ namespace winrt::Gridex::implementation
             item.type == DBModels::SidebarItemType::Function)
         {
             if (OnItemSelected)
-                OnItemSelected(item.title, item.schema);
+                OnItemSelected(item.title, item.schema, item.type);
         }
     }
 }

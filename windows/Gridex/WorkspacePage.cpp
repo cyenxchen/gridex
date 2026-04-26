@@ -1347,6 +1347,18 @@ namespace winrt::Gridex::implementation
                 state_.statusSchema = config.database;
             }
         }
+        // ClickHouse: no schema concept, the connected database is the
+        // "schema". Without this branch currentSchema_ keeps the PG
+        // default "public" and listTables / fetchRows look for non-
+        // existent public.<table>.
+        else if (config.databaseType == DBModels::DatabaseType::ClickHouse)
+        {
+            if (!config.database.empty())
+            {
+                currentSchema_ = config.database;
+                state_.statusSchema = config.database;
+            }
+        }
 
         UpdateBreadcrumb();
 
@@ -1629,9 +1641,14 @@ namespace winrt::Gridex::implementation
             }
 
             Sidebar().as<SidebarPanel>()->SetItems(state_.sidebarItems);
-            Sidebar().as<SidebarPanel>()->OnItemSelected = [this](const std::wstring& name, const std::wstring& schema)
+            Sidebar().as<SidebarPanel>()->OnItemSelected =
+                [this](const std::wstring& name, const std::wstring& schema,
+                       DBModels::SidebarItemType type)
             {
-                OnTableSelected(name, schema);
+                if (type == DBModels::SidebarItemType::Function)
+                    ShowFunctionSource(name, schema);
+                else
+                    OnTableSelected(name, schema);
             };
 
             // Feed table/function names to query editor autocomplete
@@ -2020,6 +2037,31 @@ namespace winrt::Gridex::implementation
         QueryEditor().as<QueryEditorView>()->SetSql(L"");
 
         SwitchContentView();
+    }
+
+    void WorkspacePage::ShowFunctionSource(
+        const std::wstring& name, const std::wstring& schema)
+    {
+        // Pull source via the active adapter. Each dialect maps this
+        // to its own metadata query (pg_proc / system.functions /
+        // mysql.proc / sys.sql_modules / ...).
+        std::wstring source;
+        try
+        {
+            auto adapter = connMgr_.getActiveAdapter();
+            if (adapter) source = adapter->getFunctionSource(name, schema);
+        }
+        catch (const std::exception&) { /* fall through — show stub */ }
+
+        if (source.empty())
+            source = L"-- " + name + L"\n-- (no source available for this function)";
+
+        // Reuse the query-tab flow: open a fresh tab, drop the DDL
+        // into the shared QueryEditorView. Matches how DataGrip /
+        // Navicat surface UDF bodies — user can tweak + re-run
+        // CREATE FUNCTION in place.
+        OpenNewQueryTab();
+        QueryEditor().as<QueryEditorView>()->SetSql(source);
     }
 
     // ── CRUD Operations ─────────────────────────────────
@@ -4625,9 +4667,14 @@ g.er-selected > foreignObject > div.er-card{
 
         state_.sidebarItems = { functionsGroup, tablesGroup, viewsGroup };
         Sidebar().as<SidebarPanel>()->SetItems(state_.sidebarItems);
-        Sidebar().as<SidebarPanel>()->OnItemSelected = [this](const std::wstring& name, const std::wstring& schema)
+        Sidebar().as<SidebarPanel>()->OnItemSelected =
+            [this](const std::wstring& name, const std::wstring& schema,
+                   DBModels::SidebarItemType type)
         {
-            OnTableSelected(name, schema);
+            if (type == DBModels::SidebarItemType::Function)
+                ShowFunctionSource(name, schema);
+            else
+                OnTableSelected(name, schema);
         };
     }
 

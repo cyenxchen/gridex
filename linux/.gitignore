@@ -1,0 +1,22 @@
+build/
+build-*/
+bin-tests/
+cmake-build-*/
+.cache/
+compile_commands.json
+*.o
+*.obj
+*.user
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+*.AppImage
+AppDir/
+
+# Ad-hoc screenshots / local artifacts
+image.png
+*.screenshot.png
+dist/

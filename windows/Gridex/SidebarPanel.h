@@ -19,8 +19,12 @@ namespace winrt::Gridex::implementation
         // SQL Open/Export/Import).
         void SetDatabaseType(DBModels::DatabaseType type) { currentDbType_ = type; }
 
-        // Callback invoked when user clicks a table/view/function
-        std::function<void(const std::wstring& name, const std::wstring& schema)> OnItemSelected;
+        // Callback invoked when user clicks a table/view/function. The
+        // item type lets callers route Function clicks to a source-
+        // viewer flow instead of fetchRows.
+        std::function<void(const std::wstring& name,
+                           const std::wstring& schema,
+                           DBModels::SidebarItemType type)> OnItemSelected;
 
         // Callback invoked when schema picker changes
         std::function<void(const std::wstring& schema)> OnSchemaChanged;

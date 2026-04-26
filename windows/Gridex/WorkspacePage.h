@@ -112,6 +112,10 @@ namespace winrt::Gridex::implementation
         void SwitchContentView();
         void OnTableSelected(const std::wstring& tableName, const std::wstring& schema);
         void OpenNewQueryTab();
+        // Opens a read-only query tab showing the function's source
+        // (CREATE FUNCTION DDL or body) fetched via
+        // DatabaseAdapter::getFunctionSource.
+        void ShowFunctionSource(const std::wstring& name, const std::wstring& schema);
         // Inspect a failed query's error text for the typical
         // "syntax error at or near 'X'" pattern. If X is a known
         // reserved keyword for the active dialect AND it appears
