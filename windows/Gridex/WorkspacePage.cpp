@@ -390,6 +390,8 @@ namespace winrt::Gridex::implementation
                         DBModels::QueryResult forLog = result;
                         if (dq)
                             dq.TryEnqueue([self, forLog]{ self->LogQuery(forLog); });
+                        else
+                            LogQuery(result);
                         return result;
                     }
                     catch (const std::exception& ex)
