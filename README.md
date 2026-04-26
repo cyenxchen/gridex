@@ -20,6 +20,30 @@
 
 ---
 
+## Download
+
+<p align="center">
+  <a href="https://cdn.gridex.app/macos/Gridex-0.0.11-universal.dmg"><img src="https://img.shields.io/badge/Download-macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
+  &nbsp;
+  <a href="https://cdn.gridex.app/windows/Gridex-stable-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"></a>
+  &nbsp;
+  <a href="https://cdn.gridex.app/linux/Gridex-latest-x86_64.AppImage"><img src="https://img.shields.io/badge/Download-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux"></a>
+</p>
+
+<p align="center">
+  <sub>
+    <b>macOS</b> — universal DMG (Apple Silicon + Intel), signed &amp; notarized, auto-update via Sparkle ·
+    <b>Windows</b> — Velopack installer, Windows 10/11 ·
+    <b>Linux</b> — x86_64 AppImage, Qt 6, self-update from JSON feed
+  </sub>
+</p>
+
+<p align="center">
+  <sub>Looking for a specific version, delta updates, or checksums? See <a href="https://github.com/gridex/gridex/releases">all releases</a> or the <a href="https://gridex.app/download">download page</a>.</sub>
+</p>
+
+---
+
 ## Supported Databases
 
 <p align="center">
