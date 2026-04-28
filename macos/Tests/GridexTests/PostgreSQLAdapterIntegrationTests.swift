@@ -260,4 +260,50 @@ final class PostgreSQLAdapterIntegrationTests: XCTestCase {
             "pg_class-backed listTables should include HighGo-managed physical tables (hg_*) that information_schema.tables can hide"
         )
     }
+
+    // MARK: - Vanilla PG regression — partition children must not surface as siblings
+
+    // Declarative partitioning (PG 11+): a partition child has relkind='r' and
+    // relispartition=true. The parent (relkind='p') already represents its
+    // children's data in the UI, so leaking children would double-count rows
+    // and clutter the sidebar. The original information_schema.tables query
+    // returned only 'BASE TABLE' parents; switching to pg_class introduced
+    // the leak unless we also filter `NOT relispartition`.
+    func test_listTables_excludesPartitionChildren_onVanillaPG() async throws {
+        try skipIfNoServer(port: 55434)
+
+        let cfg = makeBaseConfig(host: "127.0.0.1", port: 55434, sslMode: .disabled)
+        let adapter = PostgreSQLAdapter()
+        try await adapter.connect(config: cfg, password: nil)
+
+        // Clean previous fixtures, then create a partitioned table + one partition.
+        let prefix = "gridex_part_test_\(UUID().uuidString.prefix(8).lowercased())"
+        let plain = "\(prefix)_plain"
+        let parent = "\(prefix)_parent"
+        let child = "\(prefix)_p1"
+        do {
+            _ = try await adapter.executeRaw(sql: "CREATE TABLE \(plain) (id int)")
+            _ = try await adapter.executeRaw(sql: "CREATE TABLE \(parent) (id int) PARTITION BY RANGE (id)")
+            _ = try await adapter.executeRaw(sql: "CREATE TABLE \(child) PARTITION OF \(parent) FOR VALUES FROM (0) TO (100)")
+
+            let names = try await adapter.listTables(schema: "public").map(\.name)
+
+            XCTAssertTrue(names.contains(plain),
+                "ordinary table \(plain) must appear")
+            XCTAssertTrue(names.contains(parent),
+                "partitioned-table parent \(parent) must appear")
+            XCTAssertFalse(names.contains(child),
+                "partition child \(child) must NOT appear as a sibling — it would double-count the parent's data")
+        } catch {
+            // Best-effort cleanup, then rethrow.
+            _ = try? await adapter.executeRaw(sql: "DROP TABLE IF EXISTS \(parent) CASCADE")
+            _ = try? await adapter.executeRaw(sql: "DROP TABLE IF EXISTS \(plain)")
+            try? await adapter.disconnect()
+            throw error
+        }
+
+        _ = try? await adapter.executeRaw(sql: "DROP TABLE IF EXISTS \(parent) CASCADE")
+        _ = try? await adapter.executeRaw(sql: "DROP TABLE IF EXISTS \(plain)")
+        try await adapter.disconnect()
+    }
 }

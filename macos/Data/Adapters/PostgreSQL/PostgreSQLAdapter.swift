@@ -8,7 +8,6 @@ import PostgresNIO
 import NIOCore
 import NIOPosix
 import NIOSSL
-import Logging
 
 final class PostgreSQLAdapter: DatabaseAdapter, SchemaInspectable, @unchecked Sendable {
     let databaseType: DatabaseType = .postgresql
@@ -16,7 +15,6 @@ final class PostgreSQLAdapter: DatabaseAdapter, SchemaInspectable, @unchecked Se
     private var client: PostgresClient?
     private var clientTask: Task<Void, Never>?
     private let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-    private let logger = Logger(label: "com.gridex.postgresql")
 
     deinit {
         clientTask?.cancel()
@@ -271,21 +269,25 @@ final class PostgreSQLAdapter: DatabaseAdapter, SchemaInspectable, @unchecked Se
 
     func listTables(schema: String?) async throws -> [TableInfo] {
         let schemaFilter = schema ?? "public"
+        // relkind 'r' = ordinary table, 'p' = partitioned table parent.
+        // `NOT relispartition` excludes partition children — they show up as
+        // ordinary 'r' rows but the parent already represents them in the UI;
+        // including them would double-count rows (regression vs the original
+        // information_schema query, which only returned 'BASE TABLE' parents).
         let result = try await executeParameterized(sql: """
             SELECT c.relname, NULLIF(c.reltuples::bigint, -1)
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = $1
               AND c.relkind IN ('r', 'p')
+              AND NOT c.relispartition
             ORDER BY c.relname
             """, params: [schemaFilter])
-        let tables = result.rows.compactMap { row -> TableInfo? in
+        return result.rows.compactMap { row -> TableInfo? in
             guard let name = row.first?.stringValue else { return nil }
             let count = row.count > 1 ? row[1].intValue : nil
             return TableInfo(name: name, schema: schemaFilter, type: .table, estimatedRowCount: count)
         }
-        logger.debug("Loaded tables", metadata: ["schema": "\(schemaFilter)", "count": "\(tables.count)"])
-        return tables
     }
 
     func listViews(schema: String?) async throws -> [ViewInfo] {
