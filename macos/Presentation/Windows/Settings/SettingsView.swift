@@ -64,15 +64,13 @@ struct GeneralSettingsView: View {
             }
 
             Section("Status Bar") {
-                Toggle("Hide status bar icon", isOn: $hideStatusBarIcon)
+                Toggle("Hide MCP status bar icon", isOn: $hideStatusBarIcon)
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: hideStatusBarIcon) { _, _ in
-            Task { @MainActor in
-                MCPStatusBarController.shared.refresh()
-            }
+            MCPStatusBarController.shared.refresh()
         }
     }
 }

@@ -40,9 +40,10 @@ class MCPStatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func applyStatusBarIconVisibility() {
+        guard let item = statusItem else { return }
         let isVisible = !shouldHideStatusBarIcon
-        guard statusItem?.isVisible != isVisible else { return }
-        statusItem?.isVisible = isVisible
+        guard item.isVisible != isVisible else { return }
+        item.isVisible = isVisible
         print("[MCP Status Bar] Status bar icon \(isVisible ? "shown" : "hidden")")
     }
 
@@ -182,17 +183,5 @@ class MCPStatusBarController: NSObject, NSMenuDelegate {
             // Pulse the icon
             NSApp.requestUserAttention(.criticalRequest)
         }
-    }
-
-    func show() {
-        UserDefaults.standard.set(false, forKey: "mcp.hideStatusBarIcon")
-        applyStatusBarIconVisibility()
-        updateIcon()
-    }
-
-    func hide() {
-        UserDefaults.standard.set(true, forKey: "mcp.hideStatusBarIcon")
-        applyStatusBarIconVisibility()
-        updateIcon()
     }
 }
