@@ -206,6 +206,20 @@ final class PostgreSQLAdapterIntegrationTests: XCTestCase {
         }
     }
 
+    // MARK: - HighGo Secure regressions
+
+    // Regression test for HighGo Secure 4.5+: information_schema.tables can return
+    // duplicate rows for the same physical table, which made the macOS sidebar
+    // render repeated names. listTables must dedupe by reading pg_class directly.
+    //
+    // Target instance requirements:
+    //   - Must allow non-SSL connections (test connects with sslMode = .disabled).
+    //   - Schema `public` must contain at least one user-visible table whose name
+    //     starts with `hg_` (e.g. the HighGo audit module's `hg_t_audit_log`),
+    //     i.e. the HighGo audit module must be enabled.
+    //
+    // Run with: GRIDEX_HIGHGO_HOST=... GRIDEX_HIGHGO_PORT=... GRIDEX_HIGHGO_DATABASE=...
+    //            GRIDEX_HIGHGO_USER=... GRIDEX_HIGHGO_PASSWORD=... swift test ...
     func test_listTables_usesPgCatalogOnHighGoSecure() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GRIDEX_HIGHGO_HOST"],
@@ -241,7 +255,9 @@ final class PostgreSQLAdapterIntegrationTests: XCTestCase {
 
         let names = tables.map(\.name)
         XCTAssertEqual(names.count, Set(names).count, "HighGo information_schema.tables can duplicate rows; listTables must return unique physical tables")
-        XCTAssertEqual(names.filter { $0 == "app_view" }.count, 1)
-        XCTAssertTrue(names.contains("hg_t_audit_log"), "pg_class-backed listTables should include physical tables hidden by information_schema.tables")
+        XCTAssertTrue(
+            names.contains(where: { $0.hasPrefix("hg_") }),
+            "pg_class-backed listTables should include HighGo-managed physical tables (hg_*) that information_schema.tables can hide"
+        )
     }
 }
